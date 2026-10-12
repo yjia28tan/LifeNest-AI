@@ -23,11 +23,16 @@ class Settings(BaseSettings):
     google_cloud_project: str = ""
     google_cloud_location: str = "asia-southeast1"
 
+    # firebase = verify Firebase ID tokens; dev = "Bearer dev:<user_id>", refused when APP_ENV=prod.
+    auth_backend: Literal["firebase", "dev"] = "dev"
+    firebase_project_id: str = ""
+    cors_allowed_origins: list[str] = ["http://localhost:5000", "http://localhost:5173"]
+
     kb_backend: Literal["firestore", "memory"] = "memory"
     storage_backend: Literal["gcs", "local"] = "local"
     llm_backend: Literal["vertex", "fake"] = "fake"
-    # Not in spec section 19: lets the API run without the emulator. Production uses firestore.
-    db_backend: Literal["firestore", "memory"] = "firestore"
+    # Not in spec section 19. memory = zero-setup local run; firestore = emulator or real project (required in prod).
+    db_backend: Literal["firestore", "memory"] = "memory"
 
     firestore_emulator_host: str = ""
     firestore_database: str = "(default)"

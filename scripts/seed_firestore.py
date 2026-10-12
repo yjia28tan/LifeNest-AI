@@ -36,12 +36,10 @@ def main() -> None:
     settings = get_settings()
     if settings.db_backend != "firestore":
         raise SystemExit("seed_firestore.py needs DB_BACKEND=firestore (emulator or real project)")
-    # The Firestore client reads the emulator host from the process environment, not from .env.
-    if settings.firestore_emulator_host:
-        os.environ.setdefault("FIRESTORE_EMULATOR_HOST", settings.firestore_emulator_host)
+    repo = build_repository(settings)
     target = os.environ.get("FIRESTORE_EMULATOR_HOST") or f"project {settings.google_cloud_project or '(ADC default)'}"
     print(f"Seeding Firestore at {target}")
-    summary = asyncio.run(seed(settings, build_repository(settings), args.with_kb))
+    summary = asyncio.run(seed(settings, repo, args.with_kb))
     print(json.dumps(summary, indent=2))
 
 

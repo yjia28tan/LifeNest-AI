@@ -2,19 +2,40 @@
 
 from __future__ import annotations
 
+import os
+
 from app.config import Settings
 from app.storage.docdb import DocDB
 from app.storage.documents import DocumentStore, GCSDocumentStore, LocalDocumentStore
 from app.storage.memory import MemoryDocDB
 from app.storage.repository import Repository
 
+EMULATOR_PROJECT = "lifenest-local"
+_NO_FIRESTORE = (
+    "DB_BACKEND=firestore but no Firestore emulator or Google credentials were found. Either: "
+    "(1) start the emulator (docker compose up -d firestore) and set FIRESTORE_EMULATOR_HOST=localhost:8080; "
+    "(2) run `gcloud auth application-default login` and set GOOGLE_CLOUD_PROJECT; or "
+    "(3) set DB_BACKEND=memory for a quick local run (data is lost on restart)."
+)
+
 
 def build_docdb(settings: Settings) -> DocDB:
     if settings.db_backend == "memory":
         return MemoryDocDB()
+    from google.auth.exceptions import DefaultCredentialsError
+
     from app.storage.firestore import FirestoreDocDB
 
-    return FirestoreDocDB(settings.google_cloud_project, settings.firestore_database)
+    project = settings.google_cloud_project
+    if settings.firestore_emulator_host:
+        # The client library only reads the emulator host from the process environment.
+        os.environ.setdefault("FIRESTORE_EMULATOR_HOST", settings.firestore_emulator_host)
+    if os.environ.get("FIRESTORE_EMULATOR_HOST"):
+        project = project or EMULATOR_PROJECT
+    try:
+        return FirestoreDocDB(project, settings.firestore_database)
+    except DefaultCredentialsError:
+        raise RuntimeError(_NO_FIRESTORE) from None
 
 
 def build_repository(settings: Settings) -> Repository:
