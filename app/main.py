@@ -19,7 +19,7 @@ from app.llm.extractor import DocumentExtractor, GeminiExtractor
 from app.llm.fake import FakeExtractor, FakeLLM
 from app.llm.gateway import LLMGateway
 from app.observability import RequestContextMiddleware, configure_logging, get_logger
-from app.routers import actions, chat, documents, sessions
+from app.routers import actions, chat, documents, privacy, sessions
 from app.storage import build_document_store, build_repository
 from app.storage.documents import LocalDocumentStore
 from app.storage.seed_data import load_demo_profiles, load_property_stock
@@ -104,6 +104,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents.router)
     app.include_router(actions.router)
     app.include_router(chat.router)
+    app.include_router(privacy.router)
     if isinstance(services.documents, LocalDocumentStore):
         app.include_router(documents.local_router)
 

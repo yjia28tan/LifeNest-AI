@@ -28,8 +28,8 @@ QUESTIONS = [
 
 def main() -> None:
     demo_id = sys.argv[1] if len(sys.argv) > 1 else "aina"
-    settings = Settings(_env_file=None, app_env="dev", log_level="WARNING",
-                        local_upload_dir=Path(tempfile.mkdtemp()))
+    # Reads .env, so LLM_BACKEND=vertex (+ GEMINI_MODEL, GOOGLE_CLOUD_PROJECT) runs the same journey on Gemini.
+    settings = Settings(app_env="dev", log_level="WARNING", local_upload_dir=Path(tempfile.mkdtemp()))
     headers = {"Authorization": "Bearer dev:demo"}
     with TestClient(create_app(settings)) as client:
         sid = client.post("/sessions", headers=headers).json()["session_id"]
