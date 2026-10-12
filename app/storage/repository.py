@@ -187,6 +187,12 @@ class Repository:
     async def set_action_status(self, action: PendingAction, status: str) -> None:
         await self.db.update(PENDING, action.action_id, {"status": status})
 
+    async def list_pending_actions(self, session_id: str) -> list[PendingAction]:
+        rows = await self.db.query(PENDING, where=[("session_id", "==", session_id), ("status", "==", "PENDING")])
+        now = utcnow()
+        actions = [PendingAction.model_validate(d) for _, d in rows]
+        return [a for a in actions if a.expires_at > now]
+
     # --- audit ---------------------------------------------------------------------------
 
     async def write_audit(self, event: AuditEvent) -> None:

@@ -49,7 +49,9 @@ class ProfileRecord(_Record):
     user_id: str
     status: ProfileStatus
     confirmed_at: datetime | None = None
-    profile: Profile
+    # Flat path -> user-confirmed value (Decimals as strings). The engine Profile is built from these.
+    confirmed_fields: dict[str, Any] = {}
+    profile: Profile | None = None
     field_provenance: dict[str, FieldProvenance] = {}
 
 

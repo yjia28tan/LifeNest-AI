@@ -1,0 +1,74 @@
+{
+  "note": "Scripted FakeExtractor output for the synthetic documents, keyed by file name. Matched by content hash at runtime.",
+  "documents": {
+    "aina_payslip.png": {
+      "kind_detected": "payslip",
+      "fields": [
+        {"path": "person.age", "value": "29", "confidence": 0.93, "source_hint": "Age / Umur"},
+        {"path": "income.gross_monthly", "value": "6200.00", "confidence": 0.97, "source_hint": "Gross Pay / Gaji Kasar"},
+        {"path": "income.statutory_deductions", "value": "901.65", "confidence": 0.95, "source_hint": "Total Deductions / Jumlah Potongan"},
+        {"path": "income.variable_component", "value": "0.00", "confidence": 0.9, "source_hint": "no commission line"},
+        {"path": "income.net_monthly", "value": "5298.35", "confidence": 0.97, "source_hint": "Net Pay / Gaji Bersih"}
+      ]
+    },
+    "injection_payslip.png": {
+      "kind_detected": "payslip",
+      "fields": [
+        {"path": "person.age", "value": "29", "confidence": 0.93, "source_hint": "Age / Umur"},
+        {"path": "income.gross_monthly", "value": "6200.00", "confidence": 0.97, "source_hint": "Gross Pay / Gaji Kasar"},
+        {"path": "income.statutory_deductions", "value": "901.65", "confidence": 0.95, "source_hint": "Total Deductions / Jumlah Potongan"},
+        {"path": "income.variable_component", "value": "0.00", "confidence": 0.9, "source_hint": "no commission line"},
+        {"path": "income.net_monthly", "value": "5298.35", "confidence": 0.97, "source_hint": "Net Pay / Gaji Bersih"}
+      ]
+    },
+    "low_quality_payslip.png": {
+      "kind_detected": "payslip",
+      "fields": [
+        {"path": "person.age", "value": "29", "confidence": 0.62, "source_hint": "Age / Umur (blurred)"},
+        {"path": "income.gross_monthly", "value": "6280.00", "confidence": 0.41, "source_hint": "Gross Pay (blurred)"},
+        {"path": "income.statutory_deductions", "value": "901.65", "confidence": 0.45, "source_hint": "Total Deductions (blurred)"},
+        {"path": "income.net_monthly", "value": "5298.35", "confidence": 0.48, "source_hint": "Net Pay (blurred)"}
+      ]
+    },
+    "aina_epf.png": {
+      "kind_detected": "epf_statement",
+      "fields": [
+        {"path": "epf.akaun_sejahtera", "value": "18400.00", "confidence": 0.96, "source_hint": "Akaun Sejahtera (15%)"}
+      ]
+    },
+    "aina_loan_statements.png": {
+      "kind_detected": "loan_statement",
+      "fields": [
+        {"path": "commitments", "confidence": 0.92, "source_hint": "loan statement",
+         "value": [
+           {"type": "car_loan", "monthly": "780.00", "remaining_months": 36},
+           {"type": "study_loan", "monthly": "310.00", "remaining_months": 48}
+         ]}
+      ]
+    },
+    "kumar_payslip.png": {
+      "kind_detected": "payslip",
+      "fields": [
+        {"path": "person.age", "value": "41", "confidence": 0.95, "source_hint": "Age / Umur"},
+        {"path": "income.gross_monthly", "value": "11500.00", "confidence": 0.98, "source_hint": "Gross Pay / Gaji Kasar"},
+        {"path": "income.statutory_deductions", "value": "2080.00", "confidence": 0.96, "source_hint": "Total Deductions / Jumlah Potongan"},
+        {"path": "income.variable_component", "value": "0.00", "confidence": 0.9, "source_hint": "no commission line"},
+        {"path": "income.net_monthly", "value": "9420.00", "confidence": 0.98, "source_hint": "Net Pay / Gaji Bersih"}
+      ]
+    },
+    "mei_payslip.png": {
+      "kind_detected": "payslip",
+      "fields": [
+        {"path": "person.age", "value": "34", "confidence": 0.94, "source_hint": "Age / Umur"},
+        {"path": "income.gross_monthly", "value": "7800.00", "confidence": 0.96, "source_hint": "Gross Pay / Gaji Kasar"},
+        {"path": "income.statutory_deductions", "value": "1319.65", "confidence": 0.94, "source_hint": "Total Deductions / Jumlah Potongan"},
+        {"path": "income.variable_component", "value": "2400.00", "confidence": 0.91, "source_hint": "Sales Commission / Komisen"},
+        {"path": "income.net_monthly", "value": "6480.35", "confidence": 0.96, "source_hint": "Net Pay / Gaji Bersih"}
+      ]
+    },
+    "not_a_payslip.png": {
+      "kind_detected": "unsupported",
+      "fields": []
+    }
+  }
+}

@@ -15,9 +15,13 @@ from app.deps import Services
 from app.engine.rules import load_rules
 from app.errors import install_error_handlers
 from app.kb import build_knowledge_base
+from app.llm.extractor import DocumentExtractor, GeminiExtractor
+from app.llm.fake import FakeExtractor
 from app.observability import RequestContextMiddleware, configure_logging, get_logger
-from app.routers import sessions
+from app.routers import actions, documents, sessions
 from app.storage import build_document_store, build_repository
+from app.storage.documents import LocalDocumentStore
+from app.storage.seed_data import load_demo_profiles, load_property_stock
 
 log = get_logger("lifenest.app")
 
@@ -28,6 +32,13 @@ def build_auth(settings: Settings) -> TokenVerifier:
             raise RuntimeError("AUTH_BACKEND=dev is not allowed when APP_ENV=prod")
         return DevTokenVerifier()
     return FirebaseTokenVerifier(settings.firebase_project_id or settings.google_cloud_project)
+
+
+def build_extractor(settings: Settings) -> DocumentExtractor:
+    if settings.llm_backend == "vertex":
+        return GeminiExtractor(settings.google_cloud_project, settings.google_cloud_location,
+                               settings.gemini_model, settings.llm_timeout_seconds)
+    return FakeExtractor(settings.mock_documents_dir)
 
 
 def build_services(settings: Settings) -> Services:
@@ -46,6 +57,7 @@ def build_services(settings: Settings) -> Services:
         repo=build_repository(settings),
         documents=build_document_store(settings),
         auth=auth,
+        extractor=build_extractor(settings),
         kb=kb,
     )
 
@@ -58,6 +70,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if settings.db_backend == "memory":
+            # Nothing persists in memory mode, so reference data is seeded on every start.
+            await services.repo.replace_property_stock(load_property_stock(settings.property_stock_path))
+            await services.repo.replace_demo_profiles(load_demo_profiles(settings.demo_profiles_path))
         log.info("startup", app_env=settings.app_env, rules_version=services.rules.version,
                  db=settings.db_backend, storage=settings.storage_backend, llm=settings.llm_backend,
                  kb=settings.kb_backend, auth=settings.auth_backend)
@@ -74,6 +90,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(RequestContextMiddleware)
     app.include_router(sessions.router)
+    app.include_router(documents.router)
+    app.include_router(actions.router)
+    if isinstance(services.documents, LocalDocumentStore):
+        app.include_router(documents.local_router)
 
     @app.get("/health", tags=["ops"])
     async def health() -> dict[str, Any]:

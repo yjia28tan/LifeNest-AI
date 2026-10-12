@@ -11,6 +11,7 @@ from app.config import Settings
 from app.engine.rules import Rules
 from app.errors import ApiError
 from app.kb.store import KnowledgeBase
+from app.llm.extractor import DocumentExtractor
 from app.observability import get_logger
 from app.storage.documents import DocumentStore
 from app.storage.models import SessionRecord
@@ -28,6 +29,7 @@ class Services:
     repo: Repository
     documents: DocumentStore
     auth: TokenVerifier
+    extractor: DocumentExtractor
     kb: KnowledgeBase | None
 
 

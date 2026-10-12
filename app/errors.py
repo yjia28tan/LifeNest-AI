@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.agent.state import FieldValueError
 from app.observability import get_logger
 from app.storage.repository import ActionExpiredError, ActionNotPendingError, NotFoundError
 
@@ -55,6 +56,10 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
         return error_response(request, 422, "VALIDATION_ERROR", _validation_message(exc))
+
+    @app.exception_handler(FieldValueError)
+    async def _field_value(request: Request, exc: FieldValueError) -> JSONResponse:
+        return error_response(request, 422, "VALIDATION_ERROR", str(exc))
 
     @app.exception_handler(NotFoundError)
     async def _not_found(request: Request, exc: NotFoundError) -> JSONResponse:

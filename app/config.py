@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     document_ttl_hours: int = 24
     session_ttl_hours: int = 24
     max_document_bytes: int = 10 * 1024 * 1024
+    upload_url_ttl_seconds: int = 900
+    # Extracted fields below this confidence are flagged for the user to check in the review panel.
+    extraction_min_confidence: float = 0.7
+    mock_documents_dir: Path = ROOT / "data" / "mock_documents"
     local_upload_dir: Path = ROOT / ".local_uploads"
     local_upload_secret: SecretStr = Field(default_factory=lambda: SecretStr(secrets.token_urlsafe(32)))
     public_base_url: str = "http://localhost:8000"

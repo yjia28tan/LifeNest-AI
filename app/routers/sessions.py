@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from app.agent.review import load_demo_profile
 from app.deps import RequestContext, Services, get_services, owned_session, require_user
 from app.storage.models import ProfileStatus, SessionRecord
 
@@ -54,3 +55,19 @@ async def create_session(
 @router.get("/{session_id}", response_model=SessionResponse)
 async def get_session(session: SessionRecord = Depends(owned_session)) -> SessionResponse:
     return _response(session)
+
+
+class DemoProfileRequest(BaseModel):
+    demo_id: str = Field(min_length=1, max_length=32, pattern=r"^[a-z0-9_-]+$")
+
+
+@router.post("/{session_id}/demo-profile")
+async def use_demo_profile(
+    body: DemoProfileRequest,
+    session: SessionRecord = Depends(owned_session),
+    ctx: RequestContext = Depends(require_user),
+    services: Services = Depends(get_services),
+) -> dict[str, Any]:
+    """Load a pre-extracted, already-reviewed synthetic profile (spec 11.3) for a fast demo."""
+    return await load_demo_profile(repo=services.repo, session=session, demo_id=body.demo_id,
+                                   request_id=ctx.request_id)
