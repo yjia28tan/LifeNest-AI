@@ -12,6 +12,7 @@ from app.engine.rules import Rules
 from app.errors import ApiError
 from app.kb.store import KnowledgeBase
 from app.llm.extractor import DocumentExtractor
+from app.llm.gateway import LLMGateway
 from app.observability import get_logger
 from app.storage.documents import DocumentStore
 from app.storage.models import SessionRecord
@@ -30,6 +31,7 @@ class Services:
     documents: DocumentStore
     auth: TokenVerifier
     extractor: DocumentExtractor
+    llm: LLMGateway
     kb: KnowledgeBase | None
 
 

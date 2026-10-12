@@ -16,9 +16,10 @@ from app.engine.rules import load_rules
 from app.errors import install_error_handlers
 from app.kb import build_knowledge_base
 from app.llm.extractor import DocumentExtractor, GeminiExtractor
-from app.llm.fake import FakeExtractor
+from app.llm.fake import FakeExtractor, FakeLLM
+from app.llm.gateway import LLMGateway
 from app.observability import RequestContextMiddleware, configure_logging, get_logger
-from app.routers import actions, documents, sessions
+from app.routers import actions, chat, documents, sessions
 from app.storage import build_document_store, build_repository
 from app.storage.documents import LocalDocumentStore
 from app.storage.seed_data import load_demo_profiles, load_property_stock
@@ -41,6 +42,15 @@ def build_extractor(settings: Settings) -> DocumentExtractor:
     return FakeExtractor(settings.mock_documents_dir)
 
 
+def build_llm(settings: Settings) -> LLMGateway:
+    if settings.llm_backend == "vertex":
+        from app.llm.vertex_gemini import VertexGeminiGateway
+
+        return VertexGeminiGateway(settings.google_cloud_project, settings.google_cloud_location,
+                                   settings.gemini_model, settings.llm_timeout_seconds)
+    return FakeLLM()
+
+
 def build_services(settings: Settings) -> Services:
     auth = build_auth(settings)
     if settings.app_env == "prod" and settings.db_backend == "memory":
@@ -58,6 +68,7 @@ def build_services(settings: Settings) -> Services:
         documents=build_document_store(settings),
         auth=auth,
         extractor=build_extractor(settings),
+        llm=build_llm(settings),
         kb=kb,
     )
 
@@ -92,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(documents.router)
     app.include_router(actions.router)
+    app.include_router(chat.router)
     if isinstance(services.documents, LocalDocumentStore):
         app.include_router(documents.local_router)
 

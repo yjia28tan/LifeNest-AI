@@ -2,12 +2,39 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
+from app.llm import demo_planner
 from app.llm.extractor import ExtractionResult
+from app.llm.gateway import LLMResponse, ToolSpec
 from app.storage.models import DocumentKind
+
+Script = Callable[[str, list[dict[str, Any]], list[ToolSpec]], LLMResponse]
+
+
+class FakeLLM:
+    """LLMGateway stand-in. Pass a list of responses (played in order) or a function for scripted tests; with no
+    script it uses the offline demo planner. Every call is recorded for assertions."""
+
+    name = "fake"
+
+    def __init__(self, script: list[LLMResponse] | Script | None = None) -> None:
+        self._queue = list(script) if isinstance(script, list) else None
+        self._fn = None if isinstance(script, list) else script
+        self.calls: list[dict[str, Any]] = []
+
+    async def complete(self, system: str, messages: list[dict[str, Any]], tools: list[ToolSpec]) -> LLMResponse:
+        self.calls.append({"system": system, "messages": copy.deepcopy(messages), "tools": [t.name for t in tools]})
+        if self._queue is not None:
+            return self._queue.pop(0) if self._queue else LLMResponse(text="")
+        if self._fn is not None:
+            return self._fn(system, messages, tools)
+        return demo_planner.plan(messages)
 
 
 class FakeExtractor:
