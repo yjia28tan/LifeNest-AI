@@ -1,0 +1,101 @@
+{
+  "version": "2026-07",
+  "note": "All profiles are synthetic. No real person, employer or account appears in this repository.",
+  "profiles": [
+    {
+      "demo_id": "aina",
+      "display_name": "Aina",
+      "story": "First-time buyer eyeing a RM750,000 condo in Cheras. The bank figure is lower than she thinks, and a child in year three breaks even that.",
+      "documents": ["aina_payslip.png", "aina_epf.png", "aina_loan_statements.png"],
+      "profile": {
+        "person": { "age": 29, "dependants": 0, "locale": "en" },
+        "income": {
+          "gross_monthly": "6200.00",
+          "statutory_deductions": "901.65",
+          "variable_component": "0.00",
+          "net_monthly": "5298.35"
+        },
+        "commitments": [
+          { "type": "car_loan", "monthly": "780.00", "remaining_months": 36 },
+          { "type": "study_loan", "monthly": "310.00", "remaining_months": 48 }
+        ],
+        "epf": { "akaun_sejahtera": "18400.00" },
+        "employment": { "type": "permanent", "months_in_service": 38 },
+        "existing_housing_loans": 0,
+        "savings": "54790.00"
+      },
+      "field_provenance": {
+        "person.age": { "source": "payslip", "confidence": 0.93, "corrected_by_user": false },
+        "income.gross_monthly": { "source": "payslip", "confidence": 0.97, "corrected_by_user": false },
+        "income.statutory_deductions": { "source": "payslip", "confidence": 0.95, "corrected_by_user": false },
+        "income.net_monthly": { "source": "payslip", "confidence": 0.97, "corrected_by_user": false },
+        "commitments": { "source": "loan_statement", "confidence": 0.92, "corrected_by_user": false },
+        "epf.akaun_sejahtera": { "source": "epf_statement", "confidence": 0.96, "corrected_by_user": false },
+        "savings": { "source": "user_stated", "confidence": 1.0, "corrected_by_user": false }
+      }
+    },
+    {
+      "demo_id": "kumar",
+      "display_name": "Kumar",
+      "story": "Established earner with one car loan. Approves comfortably; the age cap on tenure is what binds.",
+      "documents": ["kumar_payslip.png"],
+      "profile": {
+        "person": { "age": 41, "dependants": 2, "locale": "en" },
+        "income": {
+          "gross_monthly": "11500.00",
+          "statutory_deductions": "2080.00",
+          "variable_component": "0.00",
+          "net_monthly": "9420.00"
+        },
+        "commitments": [
+          { "type": "car_loan", "monthly": "1100.00", "remaining_months": 54 }
+        ],
+        "epf": { "akaun_sejahtera": "52000.00" },
+        "employment": { "type": "permanent", "months_in_service": 120 },
+        "existing_housing_loans": 0,
+        "savings": "150000.00"
+      },
+      "field_provenance": {
+        "person.age": { "source": "payslip", "confidence": 0.95, "corrected_by_user": false },
+        "income.gross_monthly": { "source": "payslip", "confidence": 0.98, "corrected_by_user": false },
+        "income.statutory_deductions": { "source": "payslip", "confidence": 0.96, "corrected_by_user": false },
+        "income.net_monthly": { "source": "payslip", "confidence": 0.98, "corrected_by_user": false },
+        "commitments": { "source": "user_stated", "confidence": 1.0, "corrected_by_user": false },
+        "epf.akaun_sejahtera": { "source": "user_stated", "confidence": 1.0, "corrected_by_user": false },
+        "savings": { "source": "user_stated", "confidence": 1.0, "corrected_by_user": false }
+      }
+    },
+    {
+      "demo_id": "mei",
+      "display_name": "Mei",
+      "story": "Sales role where RM2,400 of RM7,800 is commission. The variable-income haircut lowers the income a bank will count.",
+      "documents": ["mei_payslip.png"],
+      "profile": {
+        "person": { "age": 34, "dependants": 0, "locale": "zh" },
+        "income": {
+          "gross_monthly": "7800.00",
+          "statutory_deductions": "1319.65",
+          "variable_component": "2400.00",
+          "net_monthly": "6480.35"
+        },
+        "commitments": [
+          { "type": "personal_loan", "monthly": "450.00", "remaining_months": 30 }
+        ],
+        "epf": { "akaun_sejahtera": "14200.00" },
+        "employment": { "type": "permanent", "months_in_service": 64 },
+        "existing_housing_loans": 0,
+        "savings": "110000.00"
+      },
+      "field_provenance": {
+        "person.age": { "source": "payslip", "confidence": 0.94, "corrected_by_user": false },
+        "income.gross_monthly": { "source": "payslip", "confidence": 0.96, "corrected_by_user": false },
+        "income.statutory_deductions": { "source": "payslip", "confidence": 0.94, "corrected_by_user": false },
+        "income.variable_component": { "source": "payslip", "confidence": 0.91, "corrected_by_user": false },
+        "income.net_monthly": { "source": "payslip", "confidence": 0.96, "corrected_by_user": false },
+        "commitments": { "source": "user_stated", "confidence": 1.0, "corrected_by_user": false },
+        "epf.akaun_sejahtera": { "source": "user_stated", "confidence": 1.0, "corrected_by_user": false },
+        "savings": { "source": "user_stated", "confidence": 1.0, "corrected_by_user": false }
+      }
+    }
+  ]
+}

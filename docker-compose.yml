@@ -1,0 +1,14 @@
+# Local stack with no cloud account. Phase 4: Firestore emulator. The api and web services arrive in phases 5 and 9.
+#   docker compose up -d firestore
+#   set FIRESTORE_EMULATOR_HOST=localhost:8080, then: python scripts/seed_firestore.py --with-kb
+services:
+  firestore:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: gcloud emulators firestore start --host-port=0.0.0.0:8080 --project=lifenest-local
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

@@ -1,0 +1,109 @@
+version: my-2026-07
+currency: MYR
+effective_from: 2026-07-01
+source_note: >
+  Indicative parameters. Verify against Bank Negara Malaysia, LHDN and KWSP
+  before relying on any figure. Not a lending decision.
+
+rates:
+  opr_pct: 2.75
+  sbr_pct: 2.75
+  spread_strong_applicant_pct: 1.45     # → effective ~4.20%
+  spread_standard_applicant_pct: 1.65   # → effective ~4.40%
+  stress_test_uplift_pct: 1.00          # applied in the rate_rise scenario
+
+dsr:
+  max_dsr_pct_by_income_band:
+    - { up_to_net_monthly: 3000,  max_dsr_pct: 60 }
+    - { up_to_net_monthly: 5000,  max_dsr_pct: 65 }
+    - { up_to_net_monthly: 10000, max_dsr_pct: 70 }
+    - { up_to_net_monthly: null,  max_dsr_pct: 75 }
+  income_basis: net_after_statutory        # EPF, SOCSO, EIS, PCB deducted
+  variable_income_haircut_pct: 30          # commission/bonus discounted
+
+tenure:
+  max_years: 35
+  max_age_at_maturity: 70
+
+margin_of_finance:
+  first_property_pct: 90
+  second_property_pct: 90
+  third_and_subsequent_pct: 70
+
+epf:
+  structure: three_account_2024
+  akaun_sejahtera_contribution_share_pct: 15
+  housing_withdrawal_source: akaun_sejahtera
+  note: >
+    Since May 2024 housing withdrawals draw on Akaun Sejahtera, which receives
+    15% of contributions, where the former Account 2 received 30%.
+
+stamp_duty_mot_tiers:        # memorandum of transfer, on property price
+  - { up_to: 100000,  rate_pct: 1 }
+  - { up_to: 500000,  rate_pct: 2 }
+  - { up_to: 1000000, rate_pct: 3 }
+  - { up_to: null,    rate_pct: 4 }
+
+stamp_duty_loan_pct: 0.5     # on the loan amount
+
+legal_fees_tiers:            # on property price
+  - { up_to: 500000,  rate_pct: 1.25 }
+  - { up_to: 1000000, rate_pct: 1.00 }
+  - { up_to: null,    rate_pct: 0.70 }
+
+other_upfront:
+  valuation_pct: 0.25
+  disbursements_flat: 1500
+
+living_costs:
+  base_household_monthly: 1800
+  per_dependant_monthly: 850
+  recommended_buffer_months: 3
+
+transport:                   # used by location_cost
+  fuel_price_per_litre: 2.05
+  avg_consumption_l_per_100km: 8.0
+  working_days_per_month: 22
+  parking_monthly_city_centre: 280
+  transit_pass_monthly: 150
+
+projection:
+  horizon_months: 120          # "the next decade" for scenarios and path-to-approval
+
+locations:                   # used by location_cost; indicative routing model
+  road_distance_factor: 1.3    # road km per straight-line km
+  avg_drive_speed_kmh: 35      # peak-hour Klang Valley
+  avg_transit_speed_kmh: 25
+  transit_overhead_minutes: 15 # walk + wait, per one-way trip
+  toll_per_km: 0.12
+  areas:
+    - { name: KL City Centre, lat: 3.1478, lon: 101.7117, city_centre: true }
+    - { name: Bangsar South,  lat: 3.1110, lon: 101.6658, city_centre: true }
+    - { name: Mont Kiara,     lat: 3.1702, lon: 101.6527, city_centre: false }
+    - { name: Petaling Jaya,  lat: 3.1073, lon: 101.6067, city_centre: false }
+    - { name: Cyberjaya,      lat: 2.9213, lon: 101.6559, city_centre: false }
+    - { name: Cheras,         lat: 3.0866, lon: 101.7445, city_centre: false }
+    - { name: Kajang,         lat: 2.9927, lon: 101.7909, city_centre: false }
+    - { name: Setapak,        lat: 3.2010, lon: 101.7180, city_centre: false }
+    - { name: Puchong,        lat: 3.0255, lon: 101.6206, city_centre: false }
+    - { name: Shah Alam,      lat: 3.0733, lon: 101.5185, city_centre: false }
+    - { name: Semenyih,       lat: 2.9516, lon: 101.8434, city_centre: false }
+    - { name: Rawang,         lat: 3.3213, lon: 101.5767, city_centre: false }
+
+scenarios:
+  first_child:
+    one_off_cost: 12000
+    monthly_cost_delta: 1200
+    income_delta_pct: 0
+  marriage:
+    one_off_cost: 35000
+    monthly_cost_delta: 600
+    income_delta_pct: 0
+  job_loss:
+    months_without_income: 4
+    income_delta_pct: -100
+  rate_rise:
+    rate_delta_pct: 1.00
+  car_replacement:
+    one_off_cost: 8000
+    monthly_cost_delta: 450
