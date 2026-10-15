@@ -119,8 +119,23 @@ class LocalDocumentStore:
         def _purge() -> int:
             if not folder.exists():
                 return 0
-            count = sum(1 for p in folder.iterdir() if p.is_file())
-            shutil.rmtree(folder)
+            count = 0
+            for p in folder.iterdir():
+                if p.is_file():
+                    p.unlink()
+                    count += 1
+                else:
+                    shutil.rmtree(p)
+            # Sync clients (e.g. OneDrive) can briefly lock an emptied dir on Windows; an empty dir holds no data.
+            for attempt in range(5):
+                try:
+                    folder.rmdir()
+                    break
+                except FileNotFoundError:
+                    break
+                except PermissionError:
+                    if attempt < 4:
+                        time.sleep(0.1 * (attempt + 1))
             return count
 
         return await asyncio.to_thread(_purge)
