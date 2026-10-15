@@ -34,6 +34,7 @@ def main() -> None:
     parser.add_argument("--with-kb", action="store_true", help="also run KB ingestion")
     args = parser.parse_args()
     settings = get_settings()
+    settings.export_process_env()
     if settings.db_backend != "firestore":
         raise SystemExit("seed_firestore.py needs DB_BACKEND=firestore (emulator or real project)")
     repo = build_repository(settings)

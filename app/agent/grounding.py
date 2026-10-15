@@ -98,3 +98,18 @@ def allowed_values(computations: list[dict[str, Any]], sources: list[dict[str, A
     # Confirmed profile values were supplied by the user (from their own documents) and reviewed by them.
     return collect_numbers([c.get("outputs", {}) for c in computations],
                            [s.get("content", "") for s in sources], user_texts, profile or {})
+
+
+# Spec principle 5: output is indicative, never an approval or guarantee. Matched in EN, BM and 中文.
+_PROHIBITED = [
+    re.compile(r"\b(?:you(?:'ll| will| are|'re)?|you'd)\s+(?:definitely\s+|surely\s+|certainly\s+)?(?:be\s+)?approved\b",
+               re.IGNORECASE),
+    re.compile(r"\b(?:guaranteed?|assured)\s+(?:loan\s+)?approval\b|\bapproval\s+is\s+guaranteed\b", re.IGNORECASE),
+    re.compile(r"\b(?:I|we)\s+(?:hereby\s+)?approve\b", re.IGNORECASE),
+    re.compile(r"\b(?:anda\s+)?(?:pasti|akan|telah)\s+diluluskan\b|\bkelulusan\s+dijamin\b", re.IGNORECASE),
+    re.compile(r"(?:一定|肯定|保证|必定)(?:会)?(?:获得|得到)?(?:贷款)?批准|已(?:经)?(?:获得)?批准"),
+]
+
+
+def prohibited_claims(reply: str) -> list[str]:
+    return [m.group(0) for pattern in _PROHIBITED for m in pattern.finditer(reply)]

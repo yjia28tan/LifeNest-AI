@@ -1,6 +1,5 @@
-# Local stack with no cloud account. Phase 4: Firestore emulator. The api and web services arrive in phases 5 and 9.
-#   docker compose up -d firestore
-#   set FIRESTORE_EMULATOR_HOST=localhost:8080, then: python scripts/seed_firestore.py --with-kb
+# Full local stack with no cloud account: Firestore emulator + API (fake Gemini, dev auth) + web UI.
+#   docker compose up --build        then open http://localhost:5000
 services:
   firestore:
     image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
@@ -12,3 +11,33 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  api:
+    build: .
+    depends_on:
+      firestore:
+        condition: service_healthy
+    environment:
+      APP_ENV: dev
+      AUTH_BACKEND: dev
+      DB_BACKEND: firestore
+      FIRESTORE_EMULATOR_HOST: firestore:8080
+      GOOGLE_CLOUD_PROJECT: lifenest-local
+      KB_BACKEND: memory
+      STORAGE_BACKEND: local
+      LLM_BACKEND: fake
+      PUBLIC_BASE_URL: http://localhost:8000
+      CORS_ALLOWED_ORIGINS: '["http://localhost:5000"]'
+      GROUNDING_CHECK: enforce
+    # Seed property stock and demo profiles into the emulator, then serve.
+    command: sh -c "python scripts/seed_firestore.py && exec uvicorn app.main:app --host 0.0.0.0 --port 8080"
+    ports:
+      - "8000:8080"
+
+  web:
+    image: nginx:1.27-alpine
+    depends_on: [api]
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+    ports:
+      - "5000:80"

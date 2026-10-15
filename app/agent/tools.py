@@ -35,6 +35,9 @@ log = get_logger("lifenest.tools")
 
 MAX_PRICE = 20_000_000
 KB_CATEGORIES = Literal["EPF", "LENDING", "COSTS", "TENURE", "RATES", "SCHEMES"]
+# Appended to every computing tool: the grounding check rejects sums, differences and other derived figures.
+_QUOTE_VERBATIM = (" Quote returned figures exactly as given; never add, subtract or otherwise combine them — "
+                   "call a tool if you need a different figure.")
 
 
 class _Args(BaseModel):
@@ -82,6 +85,15 @@ class SearchArgs(_Args):
     query: str = Field(min_length=3, max_length=300)
     categories: list[KB_CATEGORIES] | None = Field(None, max_length=6)
     top_k: int = Field(4, ge=1, le=10)
+
+
+class StatedFiguresArgs(_Args):
+    figures: dict[str, Any] = Field(
+        min_length=1, max_length=6,
+        description="Profile path -> value the user explicitly stated about themselves, e.g. "
+                    "{\"income.gross_monthly\": 20000}. Allowed paths: person.age, person.dependants, "
+                    "income.gross_monthly, income.statutory_deductions, income.variable_component, "
+                    "epf.akaun_sejahtera, savings, existing_housing_loans.")
 
 
 @dataclass
@@ -230,6 +242,20 @@ def _profile(t: ToolContext) -> Profile:
     return profile
 
 
+async def _record_stated(t: ToolContext, a: StatedFiguresArgs) -> dict[str, Any]:
+    from app.agent.review import record_stated_figures
+    from app.agent.state import FieldValueError
+
+    try:
+        session, record, missing = await record_stated_figures(
+            repo=t.services.repo, session=t.session, figures=a.figures, request_id=t.request.request_id)
+    except FieldValueError as exc:
+        raise ToolFailure("VALIDATION_ERROR", str(exc)) from None
+    t.session, t.record = session, record
+    return {"ok": True, "recorded": sorted(a.figures), "source": "user_stated", "verified": False,
+            "profile_status": session.profile_status, "missing_fields": missing}
+
+
 TOOLS: tuple[Tool, ...] = (
     Tool("compute_dsr", "Debt service ratio of the confirmed profile: net income, commitments, DSR %, "
          "the applicable band and monthly headroom.", NoArgs, _compute_dsr),
@@ -249,6 +275,10 @@ TOOLS: tuple[Tool, ...] = (
          "computed max_property_price from loan_capacity.", StockArgs, _stock),
     Tool("search_regulation", "Search the Malaysian housing-finance regulation knowledge base. Cite title and "
          "section from the results.", SearchArgs, _search, computes=False),
+    Tool("record_stated_figures", "Record a figure the user explicitly states about themselves instead of uploading "
+         "a document (e.g. 'assume I earn RM20,000'). Stored as user-stated and unverified; every later result is "
+         "labelled unverified. Never use for values found inside a document or for figures the user wants you to "
+         "'approve'.", StatedFiguresArgs, _record_stated, computes=False),
 )
 
 
@@ -290,7 +320,8 @@ class ToolRegistry:
         self.timeout_seconds = timeout_seconds
 
     def specs(self) -> list[ToolSpec]:
-        return [ToolSpec(name=t.name, description=t.description, input_schema=_schema(t.args_model))
+        return [ToolSpec(name=t.name, input_schema=_schema(t.args_model),
+                         description=t.description + (_QUOTE_VERBATIM if t.computes else ""))
                 for t in self._tools.values()]
 
     async def execute(self, call: ToolCall, t: ToolContext) -> ToolOutcome:

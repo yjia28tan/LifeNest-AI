@@ -73,7 +73,8 @@ class HashingEmbedder:
 
 class VertexEmbedder:
     _BATCH = 50
-    recommended_min_score = 0.35
+    # Measured on text-embedding-005 over this KB: relevant hits >= 0.61, off-topic queries up to 0.50.
+    recommended_min_score = 0.55
 
     def __init__(self, project: str, location: str, model: str, dim: int) -> None:
         if not model:

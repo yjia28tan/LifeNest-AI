@@ -29,6 +29,7 @@ class LoanCapacityResult(BaseModel):
     tenure_capped_by_age: bool
     effective_rate_pct: Decimal
     margin_of_finance_pct: Decimal
+    down_payment_pct: Decimal
     limiting_factor: LimitingFactor
     available_monthly: Decimal
     price_by_dsr: Decimal
@@ -129,6 +130,7 @@ def loan_capacity(
         tenure_capped_by_age=capped_by_age,
         effective_rate_pct=pct(rate),
         margin_of_finance_pct=pct(mof),
+        down_payment_pct=pct(HUNDRED - mof),
         limiting_factor=factor,
         available_monthly=money(avail),
         price_by_dsr=floor_thousand(price_by_dsr),

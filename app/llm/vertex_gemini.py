@@ -13,6 +13,8 @@ from app.observability import get_logger
 log = get_logger("lifenest.llm")
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 _MAX_RETRIES = 2
+# Prefix for ids we mint when Gemini returns a function call without one; never sent back to Gemini.
+_LOCAL_ID = "local_"
 
 
 class VertexGeminiGateway:
@@ -36,15 +38,26 @@ class VertexGeminiGateway:
             if m["role"] == "user":
                 contents.append(types.Content(role="user", parts=[types.Part.from_text(text=m["content"])]))
             elif m["role"] == "assistant":
+                if m.get("provider_turn") is not None:
+                    # Gemini 3 rejects function calls replayed without their original thought_signature.
+                    contents.append(m["provider_turn"])
+                    continue
                 parts = [types.Part.from_text(text=m["content"])] if m.get("content") else []
                 parts += [types.Part(function_call=types.FunctionCall(id=c["id"], name=c["name"], args=c["arguments"]))
                           for c in m.get("tool_calls", [])]
                 if parts:
                     contents.append(types.Content(role="model", parts=parts))
             elif m["role"] == "tool":
+                call_id = m["tool_call_id"]
                 part = types.Part(function_response=types.FunctionResponse(
-                    id=m["tool_call_id"], name=m["name"], response=m["result"]))
-                contents.append(types.Content(role="user", parts=[part]))
+                    id=None if call_id.startswith(_LOCAL_ID) else call_id, name=m["name"], response=m["result"]))
+                # Parallel calls must be answered together: all function responses in one user turn.
+                previous = contents[-1] if contents else None
+                if previous is not None and previous.role == "user" and previous.parts and all(
+                        p.function_response is not None for p in previous.parts):
+                    previous.parts.append(part)
+                else:
+                    contents.append(types.Content(role="user", parts=[part]))
         return contents
 
     async def _call(self, system: str, messages: list[dict[str, Any]], tools: list[ToolSpec]) -> Any:
@@ -81,7 +94,7 @@ class VertexGeminiGateway:
                     raise LLMError(type(exc).__name__) from exc
                 await asyncio.sleep(0.5 * 2**attempt)
 
-        calls = [ToolCall(id=fc.id or f"call_{uuid.uuid4().hex[:8]}", name=fc.name or "", arguments=dict(fc.args or {}))
+        calls = [ToolCall(id=fc.id or f"{_LOCAL_ID}{uuid.uuid4().hex[:8]}", name=fc.name or "", arguments=dict(fc.args or {}))
                  for fc in (resp.function_calls or [])]
         candidate = (resp.candidates or [None])[0]
         stop = str(getattr(candidate, "finish_reason", None) or "STOP")
@@ -91,4 +104,5 @@ class VertexGeminiGateway:
         log.info("llm_call", provider=self.name, model=self.model, stop_reason=stop, tool_calls=len(calls),
                  latency_ms=round((time.perf_counter() - start) * 1000), **usage)
         text = None if calls else (resp.text or None)
-        return LLMResponse(text=text, tool_calls=calls, stop_reason=stop, usage=usage)
+        turn = candidate.content if candidate is not None and calls else None
+        return LLMResponse(text=text, tool_calls=calls, stop_reason=stop, usage=usage, provider_turn=turn)

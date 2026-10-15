@@ -197,3 +197,26 @@ async def load_demo_profile(
                                       session_id=session.session_id, user_id=session.user_id,
                                       outcome="DEMO_PROFILE", outputs={"demo_id": demo_id}))
     return {"demo_id": demo_id, "display_name": demo.display_name, **profile_payload(session, record)}
+
+
+async def record_stated_figures(
+    *, repo: Repository, session: SessionRecord, figures: dict[str, Any], request_id: str,
+) -> tuple[SessionRecord, ProfileRecord | None, list[str]]:
+    """Figures the user asserts in chat (spec 16): stored as user_stated, so every later result is labelled unverified.
+
+    Uses the same allowlist and validators as review corrections, so nothing outside the profile schema gets in.
+    """
+    record = await repo.get_profile(session.session_id, session.user_id)
+    fields, provenance, recorded = apply_confirmation(
+        record.confirmed_fields if record else {}, record.field_provenance if record else {}, {}, "user_stated",
+        figures)
+    profile, missing = build_profile(fields)
+    await repo.save_profile(ProfileRecord(
+        session_id=session.session_id, user_id=session.user_id, status=record.status if record else "EXTRACTED",
+        confirmed_at=utcnow(), confirmed_fields=fields, profile=profile, field_provenance=provenance))
+    session, record = await refresh_status(repo, session)
+    for path in recorded:
+        await repo.write_audit(AuditEvent(event="EXTRACTION_CORRECTED", request_id=request_id,
+                                          session_id=session.session_id, user_id=session.user_id,
+                                          outcome="USER_STATED", outputs={"path": path, "source": "user_stated"}))
+    return session, record, missing

@@ -40,7 +40,9 @@ def main() -> None:
             print("YOU:", q)
             print(r["reply"])
             print(f"  tools={[t['tool'] for t in r['tool_trace']]} grounding={r['grounding']['status']} "
-                  f"cards={[c['type'] for c in r['cards']]}")
+                  f"unmatched={r['grounding']['unmatched']} cards={[c['type'] for c in r['cards']]}")
+        # Purge so repeated runs against real Firestore leave no profile or messages behind.
+        print("purged:", client.delete(f"/sessions/{sid}", headers=headers).json())
 
 
 if __name__ == "__main__":

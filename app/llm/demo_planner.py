@@ -42,6 +42,10 @@ INTENTS: dict[str, tuple[str, ...]] = {
     "stock": ("show me", "listing", "homes", "properties", "senarai rumah", "rumah di", "房源", "附近"),
     "regulation": ("stamp duty", "duti setem", "margin of finance", "tenure", "sbr", "scheme", "skim",
                    "legal fee", "crypto", "印花税"),
+    "stated": ("assume i earn", "i earn", "my salary is", "my income is", "i make", "gaji saya",
+               "pendapatan saya", "我的收入", "我赚", "i have saved", "my savings are", "simpanan saya"),
+    "recommend": ("should i buy", "which one should", "which property should", "recommend", "patut beli",
+                  "yang mana patut", "推荐", "应该买哪"),
 }
 SCENARIOS = ("first_child", "marriage", "job_loss", "rate_rise", "car_replacement")
 
@@ -79,6 +83,10 @@ T: dict[str, dict[str, str]] = {
         "unverified": "Note: this uses figures you told me ({fields}) rather than ones read from a document, so "
                       "treat the result as unverified.",
         "failed": "I couldn't compute that part, so I won't put a number on it.",
+        "stated": "I've noted {fields} as a figure you stated, not one read from a document.",
+        "recommend": "I can't tell you which property to buy — that's your decision, and I'm not a sales channel. "
+                     "What I can do is show what you can genuinely afford and how a price holds up against life "
+                     "events. Would you like me to check a specific price?",
         "help": "I can check what you can afford, explain the rules behind it, stress-test life events and plan a "
                 "route to a target price. What would you like to look at?",
         "in_area": " in {area}",
@@ -127,6 +135,10 @@ T: dict[str, dict[str, str]] = {
         "unverified": "Nota: ini menggunakan angka yang anda nyatakan ({fields}), bukan yang dibaca daripada "
                       "dokumen, jadi anggap keputusan ini belum disahkan.",
         "failed": "Saya tidak dapat mengira bahagian itu, jadi saya tidak akan memberi angka.",
+        "stated": "Saya telah mencatat {fields} sebagai angka yang anda nyatakan, bukan dibaca daripada dokumen.",
+        "recommend": "Saya tidak boleh memberitahu hartanah mana yang patut dibeli — itu keputusan anda, dan saya "
+                     "bukan saluran jualan. Saya boleh tunjukkan apa yang anda benar-benar mampu dan bagaimana "
+                     "sesuatu harga bertahan terhadap peristiwa hidup. Mahu saya semak harga tertentu?",
         "help": "Saya boleh semak kemampuan anda, terangkan peraturannya, uji tekanan peristiwa hidup dan rancang "
                 "laluan ke harga sasaran. Apa yang anda mahu lihat?",
         "in_area": " di {area}",
@@ -168,6 +180,9 @@ T: dict[str, dict[str, str]] = {
         "kb_miss": "我的知识库没有涵盖这一点，所以我不会猜测。请向相关机构（马来西亚国家银行、公积金局或内陆税收局）核实。",
         "unverified": "注意：这里使用了您告诉我的数字（{fields}），并非从文件中读取，因此结果未经核实。",
         "failed": "我无法计算这一部分，所以不会给出数字。",
+        "stated": "我已将 {fields} 记录为您声明的数字，而非从文件中读取。",
+        "recommend": "我不能告诉您应该买哪一间——这是您的决定，我也不是销售渠道。我可以告诉您真正负担得起的价格，"
+                     "以及某个价格在人生事件下是否稳健。要我帮您查一个具体价格吗？",
         "help": "我可以评估您的购房能力、解释相关规定、对人生事件做压力测试，并规划达到目标价格的路径。您想先看哪一项？",
         "in_area": "（{area}）",
         "DSR": "偿债比率（DSR）是限制因素",
@@ -234,6 +249,16 @@ def _ok(results: dict[str, list[dict[str, Any]]], name: str) -> list[dict[str, A
 def _wanted(intents: set[str], text: str, price: Decimal | None, named: Decimal | None,
             results: dict[str, list[dict[str, Any]]]) -> list[ToolCall]:
     calls: list[ToolCall] = []
+    if "recommend" in intents:
+        return calls
+    if "stated" in intents:
+        if "record_stated_figures" not in results and price is not None:
+            low = text.lower()
+            path = "savings" if any(w in low for w in ("sav", "simpanan", "存款")) else "income.gross_monthly"
+            return [_call("record_stated_figures", figures={path: float(price)})]
+        # The stated amount is income or savings, not a property price.
+        intents = intents | {"afford"}
+        price = None
     cap = _ok(results, "loan_capacity")
     capacity = Decimal(cap[0]["max_property_price"]) if cap else None
     needs_capacity = bool(intents & ({*SCENARIOS, "stock"}))
@@ -295,11 +320,15 @@ def plan(messages: list[dict[str, Any]]) -> LLMResponse:
     pending = [c for c in _wanted(intents, text, price, named, results) if _key(c) not in called]
     if pending:
         return LLMResponse(tool_calls=pending, stop_reason="tool_calls")
+    if "stated" in intents:
+        intents, price = intents | {"afford"}, None
     return LLMResponse(text=compose(lang, intents, price, results), stop_reason="stop")
 
 
 def compose(lang: str, intents: set[str], price: Decimal | None, results: dict[str, list[dict[str, Any]]]) -> str:
     t = T[lang]
+    if "recommend" in intents:
+        return t["recommend"]
     every = [r for rs in results.values() for r in rs]
     if any(r.get("error_code") == "PROFILE_NOT_CONFIRMED" for r in every):
         return t["not_confirmed"]
@@ -307,6 +336,8 @@ def compose(lang: str, intents: set[str], price: Decimal | None, results: dict[s
         return t["help"]
 
     lines: list[str] = []
+    for s in _ok(results, "record_stated_figures"):
+        lines.append(t["stated"].format(fields=", ".join(s["recorded"])))
     cap = _ok(results, "loan_capacity")
     if cap and "afford" in intents:
         c = cap[0]

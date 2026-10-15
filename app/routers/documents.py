@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.agent.review import propose_extraction
 from app.deps import RequestContext, Services, get_services, owned_session, require_user
 from app.errors import ApiError
+from app.ratelimit import rate_limited
 from app.storage.documents import InvalidDocumentError, LocalDocumentStore
 from app.storage.models import AuditEvent, DocumentKind, DocumentRecord, SessionRecord, utcnow
 from app.storage.repository import new_id
@@ -51,7 +52,7 @@ async def create_upload_url(
             "expires_at": utcnow() + url_ttl}
 
 
-@router.post("/{doc_id}/extract")
+@router.post("/{doc_id}/extract", dependencies=[Depends(rate_limited("extract"))])
 async def extract_document(
     doc_id: str = _id_path(),
     session: SessionRecord = Depends(owned_session),
