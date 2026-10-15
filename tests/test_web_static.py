@@ -27,6 +27,12 @@ def test_reply_text_is_never_parsed_for_numbers() -> None:
     assert re.search(r"renderMarkdown\(resp\.reply\)", js)
 
 
+def test_markdown_supports_four_hash_headings_safely() -> None:
+    js = (WEB / "app.js").read_text(encoding="utf-8")
+    assert 'line.match(/^(#{1,4})\\s+(.+)$/)' in js
+    assert 'h(`h${heading[1].length + 1}`, {}, inline(heading[2]))' in js
+
+
 def test_csp_is_strict() -> None:
     html = (WEB / "index.html").read_text(encoding="utf-8")
     csp = re.search(r'Content-Security-Policy"\s+content="([^"]+)"', html).group(1)

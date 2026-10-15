@@ -257,7 +257,7 @@ function renderMarkdown(text) {
     listTag = null;
   };
   for (const line of text.split(/\r?\n/)) {
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
     const item = line.match(/^\s*[-*+]\s+(.+)$/);
     const orderedItem = line.match(/^\s*\d+[.)]\s+(.+)$/);
     if (!line.trim() || heading || item || orderedItem || /^\s*---+\s*$/.test(line)) flushParagraph();

@@ -80,7 +80,7 @@ select, input[type="text"], input[type="number"], textarea {
 .markdown p { margin: 0 0 .55rem; }
 .markdown p:last-child { margin-bottom: 0; }
 .markdown ul { margin: .35rem 0; padding-left: 1.25rem; }
-.markdown h2, .markdown h3, .markdown h4 { margin: .15rem 0 .4rem; font-size: 1rem; }
+.markdown h2, .markdown h3, .markdown h4, .markdown h5 { margin: .15rem 0 .4rem; font-size: 1rem; }
 .markdown code { padding: .05rem .25rem; background: #e5eaed; border-radius: 3px; }
 .markdown a { color: #176b8c; }
 .msg.system .bubble { background: var(--brand-soft); color: var(--brand); }
