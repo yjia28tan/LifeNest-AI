@@ -11,10 +11,13 @@ from pydantic import BaseModel
 from app.agent.review import propose_extraction
 from app.deps import RequestContext, Services, get_services, owned_session, require_user
 from app.errors import ApiError
+from app.observability import get_logger
 from app.ratelimit import rate_limited
 from app.storage.documents import InvalidDocumentError, LocalDocumentStore
 from app.storage.models import AuditEvent, DocumentKind, DocumentRecord, SessionRecord, utcnow
 from app.storage.repository import new_id
+
+log = get_logger("lifenest.documents")
 
 router = APIRouter(prefix="/sessions/{session_id}/documents", tags=["documents"])
 local_router = APIRouter(tags=["documents"])
@@ -42,12 +45,16 @@ async def create_upload_url(
     settings = services.settings
     doc_id = new_id("doc")
     url_ttl = timedelta(seconds=settings.upload_url_ttl_seconds)
+    log.info("upload_url.create.start", kind=body.kind, content_type=body.content_type,
+             storage=services.documents.backend)
     upload_url = await services.documents.create_upload_url(session.session_id, doc_id, body.content_type, url_ttl)
+    log.info("upload_url.signed")
     await services.repo.save_document(DocumentRecord(
         doc_id=doc_id, session_id=session.session_id, kind=body.kind, content_type=body.content_type,
         gcs_uri=services.documents.uri(session.session_id, doc_id),
         expires_at=utcnow() + timedelta(hours=settings.document_ttl_hours),
     ))
+    log.info("upload_url.create.done", ttl_seconds=settings.upload_url_ttl_seconds)
     return {"doc_id": doc_id, "upload_url": upload_url, "method": "PUT", "content_type": body.content_type,
             "expires_at": utcnow() + url_ttl}
 
@@ -60,6 +67,7 @@ async def extract_document(
     services: Services = Depends(get_services),
 ) -> dict[str, Any]:
     doc = await services.repo.get_document(session.session_id, doc_id)
+    log.info("extract.start", kind=doc.kind, status=doc.extraction_status)
     return await propose_extraction(
         repo=services.repo, documents=services.documents, extractor=services.extractor,
         settings=services.settings, session=session, doc=doc, request_id=ctx.request_id,
@@ -78,12 +86,14 @@ async def local_upload(
 ) -> None:
     """Local stand-in for a GCS signed PUT URL. The signature is the credential, exactly as with GCS."""
     store = services.documents
+    log.info("local_upload.start", content_type=ct)
     if not isinstance(store, LocalDocumentStore):
         raise ApiError(404, "NOT_FOUND", "not found")
     try:
         store.verify_upload(session_id, doc_id, ct, exp, sig)
     except InvalidDocumentError as exc:
         raise ApiError(403, "FORBIDDEN", str(exc)) from None
+    log.info("local_upload.signature_ok")
     if request.headers.get("content-type", "").split(";")[0].strip() != ct:
         raise ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Content-Type must match the upload link")
 
@@ -96,6 +106,7 @@ async def local_upload(
         if size > limit:
             raise ApiError(413, "PAYLOAD_TOO_LARGE", "document is too large")
         chunks.append(chunk)
+    log.info("local_upload.received", bytes=size)
 
     doc = await services.repo.get_document(session_id, doc_id)
     if doc.content_type != ct:
@@ -104,6 +115,7 @@ async def local_upload(
         await store.write(session_id, doc_id, b"".join(chunks), ct)
     except InvalidDocumentError as exc:
         raise ApiError(422, "DOCUMENT_UNREADABLE", str(exc)) from None
+    log.info("local_upload.stored", kind=doc.kind)
     await services.repo.save_document(doc.model_copy(update={"extraction_status": "UPLOADED", "uploaded_at": utcnow()}))
     await services.repo.write_audit(AuditEvent(event="DOCUMENT_UPLOADED", request_id=request.state.request_id,
                                                session_id=session_id, outputs={"doc_id": doc_id, "kind": doc.kind}))

@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlencode
 
+from app.observability import get_logger
+
+log = get_logger("lifenest.storage")
+
 ALLOWED_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "application/pdf"})
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _MAGIC: dict[str, tuple[bytes, ...]] = {
@@ -119,8 +123,25 @@ class LocalDocumentStore:
         def _purge() -> int:
             if not folder.exists():
                 return 0
-            count = sum(1 for p in folder.iterdir() if p.is_file())
-            shutil.rmtree(folder)
+            count = 0
+            for p in folder.iterdir():
+                if p.is_file():
+                    p.unlink()
+                    count += 1
+                else:
+                    shutil.rmtree(p)
+            # Sync clients (e.g. OneDrive) can briefly lock an emptied dir on Windows; an empty dir holds no data.
+            for attempt in range(5):
+                try:
+                    folder.rmdir()
+                    break
+                except FileNotFoundError:
+                    break
+                except PermissionError:
+                    if attempt < 4:
+                        time.sleep(0.1 * (attempt + 1))
+                    else:
+                        log.warning("local_purge.empty_folder_locked", files_deleted=count)
             return count
 
         return await asyncio.to_thread(_purge)
@@ -156,8 +177,9 @@ class GCSDocumentStore:
             return {}
         import google.auth.transport.requests
 
-        creds.refresh(google.auth.transport.requests.Request())
-        return {"service_account_email": creds.service_account_email, "access_token": creds.token}
+        signing_creds = creds.with_scopes(["https://www.googleapis.com/auth/cloud-platform"])
+        signing_creds.refresh(google.auth.transport.requests.Request())
+        return {"service_account_email": signing_creds.service_account_email, "access_token": signing_creds.token}
 
     async def create_upload_url(self, session_id: str, doc_id: str, content_type: str, ttl: timedelta) -> str:
         if content_type not in ALLOWED_CONTENT_TYPES:
@@ -193,6 +215,10 @@ class GCSDocumentStore:
 
     async def ping(self) -> bool:
         try:
-            return bool(await asyncio.to_thread(self.bucket.exists))
+            def _list_one_blob() -> None:
+                next(iter(self.client.list_blobs(self.bucket, max_results=1)), None)
+
+            await asyncio.to_thread(_list_one_blob)
+            return True
         except Exception:
             return False

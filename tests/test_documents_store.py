@@ -8,6 +8,7 @@ import pytest
 
 from app.storage.documents import (
     DocumentNotFoundError,
+    GCSDocumentStore,
     InvalidDocumentError,
     LocalDocumentStore,
     validate_document,
@@ -88,3 +89,44 @@ def test_size_limit_and_valid_types() -> None:
     validate_document(b"%PDF-1.7" + b"0" * 8, "application/pdf", max_bytes=1024)
     with pytest.raises(InvalidDocumentError, match="too large"):
         validate_document(PNG + b"\x00" * 2048, "image/png", max_bytes=1024)
+
+
+@pytest.mark.parametrize("fails", [False, True])
+async def test_gcs_ping_lists_one_blob_and_handles_empty_bucket(fails) -> None:
+    class Client:
+        def list_blobs(self, bucket, *, max_results):
+            assert bucket is store.bucket
+            assert max_results == 1
+            if fails:
+                raise PermissionError("listing denied")
+            return iter(())
+
+    store = GCSDocumentStore.__new__(GCSDocumentStore)
+    store.bucket = object()
+    store.client = Client()
+
+    assert await store.ping() is (not fails)
+
+
+def test_gcs_signing_requests_cloud_platform_scope() -> None:
+    class ScopedCredentials:
+        service_account_email = "runtime@example.iam.gserviceaccount.com"
+        token = "scoped-token"
+
+        def refresh(self, request) -> None:
+            assert request is not None
+
+    class Credentials:
+        signer = None
+
+        def with_scopes(self, scopes):
+            assert scopes == ["https://www.googleapis.com/auth/cloud-platform"]
+            return ScopedCredentials()
+
+    store = GCSDocumentStore.__new__(GCSDocumentStore)
+    store.client = type("Client", (), {"_credentials": Credentials()})()
+
+    assert store._signing_kwargs() == {
+        "service_account_email": "runtime@example.iam.gserviceaccount.com",
+        "access_token": "scoped-token",
+    }

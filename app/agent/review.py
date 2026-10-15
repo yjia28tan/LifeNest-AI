@@ -16,6 +16,7 @@ from app.agent.state import (
 from app.config import Settings
 from app.errors import ApiError
 from app.llm.extractor import DocumentExtractor, ExtractorError
+from app.observability import get_logger
 from app.storage.documents import (
     DocumentNotFoundError,
     DocumentStore,
@@ -31,6 +32,8 @@ from app.storage.models import (
     utcnow,
 )
 from app.storage.repository import Repository
+
+log = get_logger("lifenest.review")
 
 NOT_SUPPORTED_MESSAGE = (
     "This doesn't look like a payslip, EPF statement or loan statement. "
@@ -82,33 +85,45 @@ async def propose_extraction(
         data = await documents.read(session.session_id, doc.doc_id)
         validate_document(data, doc.content_type, settings.max_document_bytes)
     except DocumentNotFoundError:
+        log.warning("extract.read.not_uploaded", storage=documents.backend)
         raise ApiError(422, "DOCUMENT_UNREADABLE", "No file has been uploaded for this document yet.") from None
-    except InvalidDocumentError:
+    except InvalidDocumentError as exc:
+        log.warning("extract.read.invalid_file", reason=str(exc))
         raise ApiError(422, "DOCUMENT_UNREADABLE", UNREADABLE_MESSAGE) from None
+    log.info("extract.read.done", bytes=len(data), content_type=doc.content_type)
 
     if doc.extraction_status == "PENDING_UPLOAD":
         doc = doc.model_copy(update={"extraction_status": "UPLOADED", "uploaded_at": utcnow()})
         await repo.save_document(doc)
         await repo.write_audit(audit("DOCUMENT_UPLOADED", outputs={"doc_id": doc.doc_id, "kind": doc.kind}))
 
+    log.info("extract.llm.start", extractor=type(extractor).__name__, kind_hint=doc.kind)
     try:
         result = await asyncio.wait_for(extractor.extract(data, doc.content_type, doc.kind),
                                         timeout=settings.llm_timeout_seconds)
     except TimeoutError:
+        log.error("extract.llm.timeout", timeout_seconds=settings.llm_timeout_seconds)
         await repo.write_audit(audit("LLM_ERROR", tool="extract_document", outcome="TIMEOUT"))
         raise ApiError(504, "UPSTREAM_TIMEOUT", "Reading the document took too long. Please try again.") from None
     except ExtractorError as exc:
+        log.error("extract.llm.failed", reason=str(exc)[:80], exc_info=exc)
         await repo.write_audit(audit("LLM_ERROR", tool="extract_document", outcome=str(exc)[:80]))
         raise ApiError(422, "DOCUMENT_UNREADABLE", UNREADABLE_MESSAGE) from None
+    log.info("extract.llm.done", kind_detected=result.kind_detected, readable=result.readable,
+             fields=len(result.fields))
 
     if result.kind_detected == "unsupported":
+        log.warning("extract.rejected", reason="NOT_A_SUPPORTED_DOCUMENT")
         await repo.save_document(doc.model_copy(update={"extraction_status": "REJECTED"}))
         await repo.write_audit(audit("EXTRACTION_PROPOSED", outcome="NOT_A_SUPPORTED_DOCUMENT",
                                      outputs={"doc_id": doc.doc_id}))
         raise ApiError(422, "NOT_A_SUPPORTED_DOCUMENT", NOT_SUPPORTED_MESSAGE)
 
     accepted, warnings = validate_proposed(result.fields, settings.extraction_min_confidence)
+    log.info("extract.validate.done", accepted=len(accepted), dropped=len(result.fields) - len(accepted),
+             warnings=len(warnings))
     if not result.readable or not accepted:
+        log.warning("extract.rejected", reason="DOCUMENT_UNREADABLE", readable=result.readable)
         await repo.save_document(doc.model_copy(update={"extraction_status": "REJECTED"}))
         await repo.write_audit(audit("EXTRACTION_PROPOSED", outcome="DOCUMENT_UNREADABLE",
                                      outputs={"doc_id": doc.doc_id}))
@@ -125,6 +140,8 @@ async def propose_extraction(
     )
     await repo.save_document(doc.model_copy(update={"extraction_status": "EXTRACTED"}))
     session, _ = await refresh_status(repo, session)
+    log.info("extract.proposed", kind=result.kind_detected, fields=len(fields),
+             profile_status=session.profile_status)
     await repo.write_audit(audit("EXTRACTION_PROPOSED", outcome="PROPOSED", outputs={
         "doc_id": doc.doc_id, "kind": result.kind_detected, "action_id": action.action_id,
         "paths": sorted(fields), "warnings": warnings,
@@ -146,6 +163,8 @@ async def confirm_extraction(
     action = await repo.get_pending_action(action_id, user_id)
     session = await repo.get_session(action.session_id, user_id)
     record = await repo.get_profile(session.session_id, user_id)
+    log.info("review.confirm.loaded", kind=action.proposed_fields["kind"],
+             proposed=len(action.proposed_fields["fields"]), has_profile=record is not None)
 
     # Raises FieldValueError (422) before anything is written, so a bad correction leaves the action pending.
     fields, provenance, corrected = apply_confirmation(
@@ -155,7 +174,9 @@ async def confirm_extraction(
         action.proposed_fields["kind"],
         corrections,
     )
-    profile, _ = build_profile(fields)
+    profile, missing = build_profile(fields)
+    log.info("review.confirm.applied", corrected=len(corrected), profile_built=profile is not None,
+             missing_fields=len(missing))
 
     await repo.set_action_status(action, "APPLIED")
     await repo.save_profile(ProfileRecord(
@@ -187,7 +208,8 @@ async def load_demo_profile(
 ) -> dict[str, Any]:
     demo = await repo.get_demo_profile(demo_id)
     fields = flatten_profile(demo.profile)
-    profile, _ = build_profile(fields)
+    profile, missing = build_profile(fields)
+    log.info("demo_profile.built", fields=len(fields), missing_fields=len(missing))
     await repo.save_profile(ProfileRecord(
         session_id=session.session_id, user_id=session.user_id, status="EXTRACTED", confirmed_at=utcnow(),
         confirmed_fields=fields, profile=profile, field_provenance=demo.field_provenance,

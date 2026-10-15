@@ -1,4 +1,9 @@
 {
+  "auth": {
+    "providers": {
+      "anonymous": true
+    }
+  },
   "hosting": {
     "public": "web",
     "ignore": ["firebase.json", "**/.*"],

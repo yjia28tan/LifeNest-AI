@@ -145,6 +145,19 @@ service account, builds the image, seeds stock, demo profiles and the Vertex-emb
 Firebase Hosting (enable Anonymous sign-in, set `web/config.js`, `firebase deploy`). The same code runs locally and in
 the cloud; only environment variables change ([.env.example](.env.example)).
 
+### Automatic deployment from `main`
+
+`.github/workflows/deploy-main.yml` runs Ruff and pytest, then builds and deploys Cloud Run and Firebase Hosting on
+each push to `main`. It uses GitHub OIDC Workload Identity Federation; do not store a service-account key in GitHub.
+Create a pool/provider restricted to `yjia28tan/LifeNest-AI` and `refs/heads/main`, create a deployment service
+account, grant it Cloud Build Editor, Artifact Registry Writer, Cloud Run Admin, Datastore User, Vertex AI User, and
+Firebase Hosting Admin, and grant it Service Account User on `lifenest-api`. Bind the provider's repository principal
+to the deployment account with Workload Identity User. The current project is already configured with that restricted
+provider and service account; no GitHub Actions secrets are required.
+
+Run the full `deploy.sh` once with an administrator identity to provision APIs, Firestore indexes and TTL, bucket,
+runtime service account, and Artifact Registry. The workflow sets `SKIP_INFRA=1` and only rebuilds, seeds, and deploys.
+
 ---
 
 ## Change the OPR: one line of YAML

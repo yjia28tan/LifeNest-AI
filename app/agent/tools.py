@@ -360,10 +360,15 @@ class ToolRegistry:
         except TimeoutError:
             result = {"ok": False, "error_code": "TOOL_TIMEOUT", "message": "The calculation took too long."}
         except Exception as exc:
-            log.error("tool_failed", tool=call.name, error_type=type(exc).__name__)
+            log.error("tool.crashed", tool=call.name, exc_info=exc)
             result = {"ok": False, "error_code": "INTERNAL_ERROR", "message": "The tool failed unexpectedly."}
         outcome = ToolOutcome(call=call, result=result, latency_ms=round((time.perf_counter() - start) * 1000),
                               computation=computation, sources=sources)
+        code = result.get("error_code")
+        if code:
+            log.warning("tool.failed", tool=call.name, error_code=code, latency_ms=outcome.latency_ms)
+        else:
+            log.info("tool.ok", tool=call.name, latency_ms=outcome.latency_ms, sources=len(sources))
         await self._audit(outcome, echo, t)
         return outcome
 

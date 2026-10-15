@@ -54,12 +54,15 @@ def get_services(request: Request) -> Services:
 async def require_user(request: Request, services: Services = Depends(get_services)) -> RequestContext:
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
+        log.info("auth_rejected", reason="missing_bearer_token")
         raise _UNAUTHENTICATED
     try:
         user_id = await services.auth.verify(token.strip())
-    except InvalidTokenError:
-        log.info("auth_rejected")
+    except InvalidTokenError as exc:
+        log.info("auth_rejected", reason=str(exc), cause=str(exc.__cause__)[:120] if exc.__cause__ else None,
+                 verifier=type(services.auth).__name__)
         raise _UNAUTHENTICATED from None
+    log.debug("auth_ok", verifier=type(services.auth).__name__)
     return RequestContext(user_id=user_id, request_id=request.state.request_id)
 
 

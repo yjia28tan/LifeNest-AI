@@ -15,7 +15,10 @@ from fastapi import Depends, Request
 
 from app.deps import RequestContext, Services, get_services, require_user
 from app.errors import ApiError
+from app.observability import get_logger
 from app.storage.models import AuditEvent
+
+log = get_logger("lifenest.ratelimit")
 
 
 class SlidingWindowLimiter:
@@ -47,6 +50,7 @@ def rate_limited(bucket: str):  # noqa: ANN201 - FastAPI dependency factory
         wait = services.limiter.hit(f"{bucket}:{ctx.user_id}")
         if wait is None:
             return
+        log.warning("rate_limited", bucket=bucket, retry_after_s=max(1, math.ceil(wait)))
         await services.repo.write_audit(AuditEvent(
             event="RATE_LIMITED", request_id=ctx.request_id, user_id=ctx.user_id,
             session_id=request.path_params.get("session_id"), outcome=bucket))

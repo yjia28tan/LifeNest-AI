@@ -221,9 +221,76 @@ function renderTrace(trace) {
       h("code", {}, r.tool), h("span", {}, r.error_code || r.status), h("span", {}, `${r.latency_ms} ms`))));
 }
 
+function renderMarkdown(text) {
+  const inlinePattern = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
+  const inline = (value) => {
+    const fragment = document.createDocumentFragment();
+    let offset = 0;
+    for (const match of value.matchAll(inlinePattern)) {
+      fragment.append(value.slice(offset, match.index));
+      const token = match[0];
+      if (token.startsWith("**")) fragment.append(h("strong", {}, token.slice(2, -2)));
+      else if (token.startsWith("*")) fragment.append(h("em", {}, token.slice(1, -1)));
+      else if (token.startsWith("`")) fragment.append(h("code", {}, token.slice(1, -1)));
+      else {
+        const [, label, url] = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+        fragment.append(h("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, label));
+      }
+      offset = match.index + token.length;
+    }
+    fragment.append(value.slice(offset));
+    return fragment;
+  };
+
+  const root = h("div", { class: "markdown" });
+  let paragraph = [];
+  let list = null;
+  let listTag = null;
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    root.append(h("p", {}, paragraph.flatMap((line, i) => i ? [h("br"), inline(line)] : [inline(line)])));
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (list) root.append(list);
+    list = null;
+    listTag = null;
+  };
+  for (const line of text.split(/\r?\n/)) {
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const item = line.match(/^\s*[-*+]\s+(.+)$/);
+    const orderedItem = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (!line.trim() || heading || item || orderedItem || /^\s*---+\s*$/.test(line)) flushParagraph();
+    if (!line.trim()) {
+      flushList();
+    } else if (heading) {
+      flushList();
+      root.append(h(`h${heading[1].length + 1}`, {}, inline(heading[2])));
+    } else if (/^\s*---+\s*$/.test(line)) {
+      flushList();
+      root.append(h("hr"));
+    } else if (item || orderedItem) {
+      const tag = orderedItem ? "ol" : "ul";
+      const content = (orderedItem || item)[1];
+      if (listTag !== tag) {
+        flushList();
+        list = h(tag, {});
+        listTag = tag;
+      }
+      list.append(h("li", {}, inline(content)));
+    } else {
+      flushList();
+      paragraph.push(line);
+    }
+  }
+  flushParagraph();
+  flushList();
+  return root;
+}
+
 function renderAssistant(resp) {
   return addNode(h("div", { class: "msg assistant" },
-    h("div", { class: "bubble" }, resp.reply),
+    h("div", { class: "bubble" }, renderMarkdown(resp.reply)),
     renderCards(resp.cards || []),
     renderSources(resp.sources),
     renderTrace(resp.tool_trace)));

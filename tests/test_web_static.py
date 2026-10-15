@@ -24,6 +24,7 @@ def test_reply_text_is_never_parsed_for_numbers() -> None:
     js = _js()
     assert not re.search(r"reply\s*\.\s*(match|replace|split|exec)", js)
     assert not re.search(r"(parseFloat|Number|parseInt)\(\s*[\w.]*reply", js)
+    assert re.search(r"renderMarkdown\(resp\.reply\)", js)
 
 
 def test_csp_is_strict() -> None:
@@ -32,6 +33,13 @@ def test_csp_is_strict() -> None:
     assert "default-src 'self'" in csp and "object-src 'none'" in csp and "frame-src 'none'" in csp
     assert "'unsafe-inline'" not in csp and "'unsafe-eval'" not in csp
     assert "<script>" not in html and "style=" not in html
+
+
+def test_local_ui_uses_local_api_and_dev_auth() -> None:
+    config = (WEB / "config.js").read_text(encoding="utf-8")
+    assert '"localhost", "127.0.0.1"' in config
+    assert '"http://localhost:8000"' in config
+    assert 'localDevelopment ? "dev" : "firebase"' in config
 
 
 def test_disclaimer_is_always_on_screen() -> None:
