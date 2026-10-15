@@ -21,9 +21,12 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: python -m pip install -e ".[dev,gcp]"
-      - run: ruff check app tests scripts
-      - run: pytest -p no:warnings
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev,gcp]"
+      - name: Lint
+        run: ruff check app tests scripts
+      - name: Test
+        run: pytest -p no:warnings
 
   deploy:
     needs: test
@@ -54,7 +57,16 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: lifenest-ai
-      - run: python -m pip install -e ".[gcp]"
-      - run: ./deploy.sh
-      - run: npm install --global firebase-tools
-      - run: firebase deploy --only hosting --project lifenest-ai --non-interactive
+      - name: Install dependencies
+        run: python -m pip install -e ".[gcp]"
+      - name: Deploy backend
+        run: |
+          sed -i 's/\r$//' deploy.sh
+          bash deploy.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools
+      - name: Deploy Firebase Hosting
+        run: firebase deploy --only hosting --project lifenest-ai --non-interactive
