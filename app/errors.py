@@ -51,28 +51,35 @@ def _validation_message(exc: RequestValidationError) -> str:
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
+        log.warning("api_error", status=exc.status, code=exc.code, message=exc.message)
         return error_response(request, exc.status, exc.code, exc.message, exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
-        return error_response(request, 422, "VALIDATION_ERROR", _validation_message(exc))
+        message = _validation_message(exc)
+        log.warning("request_validation_error", message=message)
+        return error_response(request, 422, "VALIDATION_ERROR", message)
 
     @app.exception_handler(FieldValueError)
     async def _field_value(request: Request, exc: FieldValueError) -> JSONResponse:
+        log.warning("field_value_error", error_type=type(exc).__name__)
         return error_response(request, 422, "VALIDATION_ERROR", str(exc))
 
     @app.exception_handler(NotFoundError)
     async def _not_found(request: Request, exc: NotFoundError) -> JSONResponse:
         # AuthzDeniedError is a subclass: same status, code and message as genuinely missing.
         code = _NOT_FOUND_CODES.get(exc.what, "NOT_FOUND")
+        log.warning("not_found", resource=exc.what, code=code)
         return error_response(request, 404, code, f"{exc.what.replace('_', ' ')} not found")
 
     @app.exception_handler(ActionExpiredError)
     async def _expired(request: Request, exc: ActionExpiredError) -> JSONResponse:
+        log.warning("action_expired")
         return error_response(request, 410, "ACTION_EXPIRED", "this action has expired; please start again")
 
     @app.exception_handler(ActionNotPendingError)
     async def _not_pending(request: Request, exc: ActionNotPendingError) -> JSONResponse:
+        log.warning("action_not_pending")
         return error_response(request, 410, "ACTION_EXPIRED", "this action was already used or cancelled")
 
     @app.exception_handler(StarletteHTTPException)
@@ -83,5 +90,6 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+        # The traceback itself is logged once, by RequestContextMiddleware (request_failed).
         log.error("unhandled_exception", error_type=type(exc).__name__)
         return error_response(request, 500, "INTERNAL_ERROR", "something went wrong on our side; please try again")

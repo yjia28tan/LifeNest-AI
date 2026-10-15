@@ -54,23 +54,33 @@ def build_llm(settings: Settings) -> LLMGateway:
 
 def build_services(settings: Settings) -> Services:
     settings.export_process_env()
+    log.info("startup.auth", backend=settings.auth_backend)
     auth = build_auth(settings)
     if settings.app_env == "prod" and settings.db_backend == "memory":
         raise RuntimeError("DB_BACKEND=memory is not allowed when APP_ENV=prod; use firestore")
+    log.info("startup.knowledge_base", backend=settings.kb_backend)
     try:
         kb = build_knowledge_base(settings)
     except (FileNotFoundError, ValueError) as exc:
         # The API still serves; search_regulation reports the KB as unavailable.
-        log.warning("kb_unavailable", error_type=type(exc).__name__)
+        log.warning("startup.kb_unavailable", error_type=type(exc).__name__, detail=str(exc)[:200])
         kb = None
+    log.info("startup.rules", path=str(settings.rules_config_path))
+    rules = load_rules(settings.rules_config_path)
+    log.info("startup.database", backend=settings.db_backend)
+    repo = build_repository(settings)
+    log.info("startup.document_store", backend=settings.storage_backend)
+    documents = build_document_store(settings)
+    log.info("startup.llm", backend=settings.llm_backend, model=settings.gemini_model or None)
+    extractor, llm = build_extractor(settings), build_llm(settings)
     return Services(
         settings=settings,
-        rules=load_rules(settings.rules_config_path),
-        repo=build_repository(settings),
-        documents=build_document_store(settings),
+        rules=rules,
+        repo=repo,
+        documents=documents,
         auth=auth,
-        extractor=build_extractor(settings),
-        llm=build_llm(settings),
+        extractor=extractor,
+        llm=llm,
         kb=kb,
         limiter=SlidingWindowLimiter(settings.rate_limit_per_minute),
     )
@@ -78,7 +88,10 @@ def build_services(settings: Settings) -> Services:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
-    configure_logging(settings.log_level)
+    log_format = settings.log_format
+    if log_format == "auto":
+        log_format = "console" if settings.app_env == "dev" else "json"
+    configure_logging(settings.log_level, log_format)
     # Fail fast on misconfiguration (bad rules file, dev auth in prod) before serving traffic.
     services = build_services(settings)
 
@@ -86,12 +99,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.db_backend == "memory":
             # Nothing persists in memory mode, so reference data is seeded on every start.
+            log.info("startup.seed_memory_db")
             await services.repo.replace_property_stock(load_property_stock(settings.property_stock_path))
             await services.repo.replace_demo_profiles(load_demo_profiles(settings.demo_profiles_path))
-        log.info("startup", app_env=settings.app_env, rules_version=services.rules.version,
+        log.info("startup.ready", app_env=settings.app_env, rules_version=services.rules.version,
                  db=settings.db_backend, storage=settings.storage_backend, llm=settings.llm_backend,
                  kb=settings.kb_backend, auth=settings.auth_backend)
         yield
+        log.info("shutdown")
 
     app = FastAPI(title="LifeNest AI", version="0.1.0", lifespan=lifespan,
                   docs_url=None if settings.app_env == "prod" else "/docs", redoc_url=None)

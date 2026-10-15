@@ -20,6 +20,8 @@ class Settings(BaseSettings):
 
     app_env: Literal["dev", "test", "prod"] = "dev"
     log_level: str = "INFO"
+    # auto = readable console lines when APP_ENV=dev, JSON (Cloud Logging) otherwise.
+    log_format: Literal["auto", "console", "json"] = "auto"
     timezone: str = "Asia/Kuala_Lumpur"
 
     google_cloud_project: str = ""

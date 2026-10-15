@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlencode
 
+from app.observability import get_logger
+
+log = get_logger("lifenest.storage")
+
 ALLOWED_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "application/pdf"})
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _MAGIC: dict[str, tuple[bytes, ...]] = {
@@ -136,6 +140,8 @@ class LocalDocumentStore:
                 except PermissionError:
                     if attempt < 4:
                         time.sleep(0.1 * (attempt + 1))
+                    else:
+                        log.warning("local_purge.empty_folder_locked", files_deleted=count)
             return count
 
         return await asyncio.to_thread(_purge)
