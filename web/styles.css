@@ -77,6 +77,12 @@ select, input[type="text"], input[type="number"], textarea {
             border-radius: 14px 14px 4px 14px; white-space: pre-line; }
 .msg.assistant .bubble, .msg.system .bubble { background: #f1f4f6; padding: .7rem .9rem; border-radius: 14px 14px 14px 4px;
                                                white-space: pre-line; line-height: 1.45; }
+.markdown p { margin: 0 0 .55rem; }
+.markdown p:last-child { margin-bottom: 0; }
+.markdown ul { margin: .35rem 0; padding-left: 1.25rem; }
+.markdown h2, .markdown h3, .markdown h4 { margin: .15rem 0 .4rem; font-size: 1rem; }
+.markdown code { padding: .05rem .25rem; background: #e5eaed; border-radius: 3px; }
+.markdown a { color: #176b8c; }
 .msg.system .bubble { background: var(--brand-soft); color: var(--brand); }
 .msg.error .bubble { background: #fde8e7; color: var(--breaks); }
 .cards { display: flex; flex-direction: column; gap: .75rem; margin-top: .75rem; }

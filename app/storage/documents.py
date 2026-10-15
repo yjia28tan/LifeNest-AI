@@ -156,8 +156,9 @@ class GCSDocumentStore:
             return {}
         import google.auth.transport.requests
 
-        creds.refresh(google.auth.transport.requests.Request())
-        return {"service_account_email": creds.service_account_email, "access_token": creds.token}
+        signing_creds = creds.with_scopes(["https://www.googleapis.com/auth/cloud-platform"])
+        signing_creds.refresh(google.auth.transport.requests.Request())
+        return {"service_account_email": signing_creds.service_account_email, "access_token": signing_creds.token}
 
     async def create_upload_url(self, session_id: str, doc_id: str, content_type: str, ttl: timedelta) -> str:
         if content_type not in ALLOWED_CONTENT_TYPES:

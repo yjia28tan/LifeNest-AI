@@ -25,6 +25,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 gcloud config set project "$PROJECT_ID" >/dev/null
 
+if [[ "${SKIP_INFRA:-0}" != "1" ]]; then
 echo "== 1/8 Enable APIs"
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com \
   firestore.googleapis.com storage.googleapis.com aiplatform.googleapis.com iamcredentials.googleapis.com \
@@ -38,8 +39,12 @@ for group in sessions documents pending_actions; do
   gcloud firestore fields ttls update expires_at "${DB[@]}" --collection-group="$group" --enable-ttl --async >/dev/null || true
 done
 index() { gcloud firestore indexes composite create "${DB[@]}" --query-scope=COLLECTION --async "$@" >/dev/null 2>&1 || true; }
-index --collection-group=kb_chunks --field-config=field-path=category,order=ASCENDING \
-  --field-config="field-path=embedding,vector-config={\"dimension\":\"${EMBEDDING_DIM}\",\"flat\":\"{}\"}"
+printf '[{"field-path":"embedding","vector-config":{"dimension":%s,"flat":{}}}]' \
+  "$EMBEDDING_DIM" > "$TMP/kb-vector-index.json"
+printf '[{"field-path":"category","order":"ASCENDING"},{"field-path":"embedding","vector-config":{"dimension":%s,"flat":{}}}]' \
+  "$EMBEDDING_DIM" > "$TMP/kb-category-vector-index.json"
+index --collection-group=kb_chunks --field-config="$TMP/kb-vector-index.json"
+index --collection-group=kb_chunks --field-config="$TMP/kb-category-vector-index.json"
 index --collection-group=audit_logs --field-config=field-path=session_id,order=ASCENDING --field-config=field-path=ts,order=ASCENDING
 index --collection-group=audit_logs --field-config=field-path=event,order=ASCENDING --field-config=field-path=ts,order=ASCENDING
 index --collection-group=audit_logs --field-config=field-path=session_id,order=ASCENDING \
@@ -66,6 +71,7 @@ gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" --member="serviceAc
 # Signed upload URLs are signed via IAM signBlob with the service's own identity (no key files).
 gcloud iam service-accounts add-iam-policy-binding "$SA" --member="serviceAccount:$SA" \
   --role=roles/iam.serviceAccountTokenCreator >/dev/null
+fi
 
 echo "== 5/8 Build image"
 gcloud artifacts repositories describe "$REPO" --location="$REGION" >/dev/null 2>&1 \

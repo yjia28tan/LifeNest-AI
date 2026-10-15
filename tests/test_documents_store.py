@@ -106,3 +106,27 @@ async def test_gcs_ping_lists_one_blob_and_handles_empty_bucket(fails) -> None:
     store.client = Client()
 
     assert await store.ping() is (not fails)
+
+
+def test_gcs_signing_requests_cloud_platform_scope() -> None:
+    class ScopedCredentials:
+        service_account_email = "runtime@example.iam.gserviceaccount.com"
+        token = "scoped-token"
+
+        def refresh(self, request) -> None:
+            assert request is not None
+
+    class Credentials:
+        signer = None
+
+        def with_scopes(self, scopes):
+            assert scopes == ["https://www.googleapis.com/auth/cloud-platform"]
+            return ScopedCredentials()
+
+    store = GCSDocumentStore.__new__(GCSDocumentStore)
+    store.client = type("Client", (), {"_credentials": Credentials()})()
+
+    assert store._signing_kwargs() == {
+        "service_account_email": "runtime@example.iam.gserviceaccount.com",
+        "access_token": "scoped-token",
+    }
