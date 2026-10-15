@@ -193,6 +193,10 @@ class GCSDocumentStore:
 
     async def ping(self) -> bool:
         try:
-            return bool(await asyncio.to_thread(self.bucket.exists))
+            def _list_one_blob() -> None:
+                next(iter(self.client.list_blobs(self.bucket, max_results=1)), None)
+
+            await asyncio.to_thread(_list_one_blob)
+            return True
         except Exception:
             return False
