@@ -1,10 +1,12 @@
-# secrets and environment variables
+# secrets and environment variables (keys live outside the repo, e.g. %USERPROFILE%\.lifenest\)
 gcp-key.json
+*-key.json
 secrets.env
 *.env
 !.env.example
 .env
 *service-account*.json
+application_default_credentials.json
 
 # local runtime
 .local_uploads/
@@ -18,25 +20,19 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 logs/
+# Vertex-embedded KB for real-Gemini runs; the committed data/kb_embeddings.json is the offline one.
+data/kb_embeddings_vertex.json
+.firebase/
 
-# documentation
-# docs/  ← intentionally NOT ignored; public repo needs it visible to judges
+# internal working documents (proposal, backlog, build spec, pitch deck) stay local
+docs/
 
 # Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 htmlcov/
 .coverage
 .coverage.*
 dist/
 build/
-logs/
 
 # Node / Next.js
 web/node_modules/

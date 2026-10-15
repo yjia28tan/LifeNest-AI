@@ -23,6 +23,7 @@ def main() -> None:
     parser.add_argument("--firestore", action="store_true", help="also upsert into Firestore kb_chunks")
     args = parser.parse_args()
     settings = get_settings()
+    settings.export_process_env()
     summary = asyncio.run(ingest(settings, write_firestore=args.firestore or settings.kb_backend == "firestore"))
     print(json.dumps(summary, indent=2))
 

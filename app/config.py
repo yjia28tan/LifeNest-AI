@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 from functools import lru_cache
 from pathlib import Path
@@ -14,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # .env holds non-secret config; secrets.env (also gitignored) holds secrets and wins on conflicts.
+    model_config = SettingsConfigDict(env_file=(".env", "secrets.env"), env_file_encoding="utf-8", extra="ignore")
 
     app_env: Literal["dev", "test", "prod"] = "dev"
     log_level: str = "INFO"
@@ -22,6 +24,8 @@ class Settings(BaseSettings):
 
     google_cloud_project: str = ""
     google_cloud_location: str = "asia-southeast1"
+    # Local dev only: path to a service-account key kept OUTSIDE the repo. Cloud Run uses its attached identity.
+    google_application_credentials: str = ""
 
     # firebase = verify Firebase ID tokens; dev = "Bearer dev:<user_id>", refused when APP_ENV=prod.
     auth_backend: Literal["firebase", "dev"] = "dev"
@@ -63,11 +67,21 @@ class Settings(BaseSettings):
     agent_max_steps: int = 6
     tool_timeout_seconds: float = 8
     turn_timeout_seconds: float = 60
-    # Unset = use the embedder's recommended threshold (0.35 for Vertex per spec, lower for the offline embedder).
+    # Unset = the embedder's measured threshold (0.55 for Vertex text-embedding-005, 0.15 offline).
     kb_min_score: float | None = None
     rate_limit_per_minute: int = 20
     pending_action_ttl_seconds: int = 900
     grounding_check: Literal["warn", "enforce"] = "warn"
+
+    def export_process_env(self) -> None:
+        """Google client libraries read credentials from the process environment, not from .env files."""
+        if self.google_application_credentials:
+            path = Path(os.path.expandvars(self.google_application_credentials)).expanduser()
+            if not path.is_file():
+                raise RuntimeError(f"GOOGLE_APPLICATION_CREDENTIALS points to a missing file: {path}")
+            os.environ.setdefault("GOOGLE_APPLICATION_CREDENTIALS", str(path))
+        if self.google_cloud_project:
+            os.environ.setdefault("GOOGLE_CLOUD_PROJECT", self.google_cloud_project)
 
 
 @lru_cache

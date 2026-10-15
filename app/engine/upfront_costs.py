@@ -17,6 +17,7 @@ class UpfrontCostsResult(BaseModel):
 
     property_price: Decimal
     margin_of_finance_pct: Decimal
+    down_payment_pct: Decimal
     loan_amount: Decimal
     down_payment: Decimal
     stamp_duty_mot: Decimal
@@ -69,6 +70,7 @@ def upfront_costs(property_price: Decimal, profile: Profile, rules: Rules) -> Up
     return UpfrontCostsResult(
         property_price=money(property_price),
         margin_of_finance_pct=pct(mof_pct),
+        down_payment_pct=pct(HUNDRED - mof_pct),
         total_cash_needed=total,
         epf_applied=min(epf, total),
         shortfall_after_epf=after_epf,

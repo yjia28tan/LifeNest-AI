@@ -19,6 +19,7 @@ from app.llm.extractor import DocumentExtractor, GeminiExtractor
 from app.llm.fake import FakeExtractor, FakeLLM
 from app.llm.gateway import LLMGateway
 from app.observability import RequestContextMiddleware, configure_logging, get_logger
+from app.ratelimit import SlidingWindowLimiter
 from app.routers import actions, chat, documents, privacy, sessions
 from app.storage import build_document_store, build_repository
 from app.storage.documents import LocalDocumentStore
@@ -52,6 +53,7 @@ def build_llm(settings: Settings) -> LLMGateway:
 
 
 def build_services(settings: Settings) -> Services:
+    settings.export_process_env()
     auth = build_auth(settings)
     if settings.app_env == "prod" and settings.db_backend == "memory":
         raise RuntimeError("DB_BACKEND=memory is not allowed when APP_ENV=prod; use firestore")
@@ -70,6 +72,7 @@ def build_services(settings: Settings) -> Services:
         extractor=build_extractor(settings),
         llm=build_llm(settings),
         kb=kb,
+        limiter=SlidingWindowLimiter(settings.rate_limit_per_minute),
     )
 
 

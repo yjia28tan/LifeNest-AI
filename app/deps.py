@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fastapi import Depends, Path, Request
 
@@ -17,6 +18,9 @@ from app.observability import get_logger
 from app.storage.documents import DocumentStore
 from app.storage.models import SessionRecord
 from app.storage.repository import AuthzDeniedError, Repository
+
+if TYPE_CHECKING:
+    from app.ratelimit import SlidingWindowLimiter
 
 log = get_logger("lifenest.auth")
 _UNAUTHENTICATED = ApiError(401, "UNAUTHENTICATED", "a valid sign-in token is required",
@@ -33,6 +37,7 @@ class Services:
     extractor: DocumentExtractor
     llm: LLMGateway
     kb: KnowledgeBase | None
+    limiter: SlidingWindowLimiter
 
 
 @dataclass(frozen=True)

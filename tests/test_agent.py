@@ -171,10 +171,13 @@ def test_tool_timeout_is_contained(tmp_path, monkeypatch) -> None:
 
 def test_step_limit_gives_a_friendly_fallback(client) -> None:
     sid = _session(client)
-    _script(client, *[_calls(("compute_dsr", {}))] * 10)
+    llm = _script(client, *[_calls(("compute_dsr", {}))] * 10)
     r = _say(client, sid)
     assert r["reply"] == STEP_LIMIT_REPLY
-    assert len(r["tool_trace"]) == client.app.state.services.settings.agent_max_steps
+    max_steps = client.app.state.services.settings.agent_max_steps
+    assert len(r["tool_trace"]) == max_steps - 1
+    # The final step offers no tools, so a real model has to answer from what it already has.
+    assert llm.calls[-1]["tools"] == [] and all(c["tools"] for c in llm.calls[:-1])
 
 
 def test_llm_failure_gives_a_friendly_fallback(client) -> None:
@@ -237,7 +240,7 @@ def test_tool_schemas_are_function_calling_friendly() -> None:
     specs = {s.name: s.input_schema for s in ToolRegistry().specs()}
     assert set(specs) == {"compute_dsr", "loan_capacity", "epf_withdrawal", "upfront_costs", "location_cost",
                           "simulate_scenario", "plan_path_to_approval", "match_affordable_stock",
-                          "search_regulation"}
+                          "search_regulation", "record_stated_figures"}
     text = repr(specs)
     assert "anyOf" not in text and "'title'" not in text and "user_id" not in text
     assert specs["upfront_costs"]["required"] == ["property_price"]

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.agent.cards import build_cards
-from app.agent.grounding import allowed_values, check_grounding, extract_figures
+from app.agent.grounding import allowed_values, check_grounding, extract_figures, prohibited_claims
 from app.agent.prompts import render_system_prompt
 from app.agent.tools import ToolContext, ToolOutcome, ToolRegistry
 from app.llm.gateway import LLMError
@@ -32,6 +32,8 @@ LLM_FAILURE_REPLY = "I'm having trouble reaching the reasoning service right now
 TIMEOUT_REPLY = "That took longer than expected, so I stopped. Please try again."
 UNGROUNDED_REPLY = ("I've put the figures I computed in the cards below. I held back my written summary because it "
                     "contained a number I couldn't verify against those results.")
+APPROVAL_REPLY = ("I can't approve a loan or promise approval — only a bank can make that decision. The figures in "
+                  "the cards below are an indicative estimate of what you can afford, not a lending decision.")
 
 
 @dataclass
@@ -48,12 +50,17 @@ def _history_messages(history: list[MessageRecord]) -> list[dict[str, Any]]:
 async def _loop(services: Services, registry: ToolRegistry, system: str, messages: list[dict[str, Any]],
                 tctx: ToolContext, state: TurnState) -> None:
     specs = registry.specs()
-    for _ in range(services.settings.agent_max_steps):
-        resp = await services.llm.complete(system, messages, specs)
+    max_steps = services.settings.agent_max_steps
+    for step in range(max_steps):
+        final = step == max_steps - 1
+        # On the last step offer no tools, so the model must answer from the results it already has.
+        resp = await services.llm.complete(system, messages, [] if final else specs)
         if not resp.tool_calls:
             state.reply = (resp.text or "").strip() or STEP_LIMIT_REPLY
             return
-        messages.append({"role": "assistant", "content": resp.text,
+        if final:
+            break
+        messages.append({"role": "assistant", "content": resp.text, "provider_turn": resp.provider_turn,
                          "tool_calls": [c.model_dump() for c in resp.tool_calls]})
         outcomes = await asyncio.gather(*(registry.execute(c, tctx) for c in resp.tool_calls))
         state.outcomes.extend(outcomes)
@@ -90,6 +97,9 @@ async def run_turn(services: Services, ctx: RequestContext, session: SessionReco
     computations = [o.computation for o in state.outcomes if o.computation]
     sources = [s for o in state.outcomes for s in o.sources]
     user_texts = [m.content for m in history if m.role == "user"] + [message]
+    # A user-stated figure recorded during the turn may have changed the profile and its status.
+    session, record = tctx.session, tctx.record
+    profile_json = record.profile.model_dump(mode="json") if record and record.profile else None
 
     grounding = check_grounding(state.reply, allowed_values(computations, sources, user_texts, profile_json))
     grounding_status = "ok"
@@ -100,6 +110,15 @@ async def run_turn(services: Services, ctx: RequestContext, session: SessionReco
         log.warning("UNGROUNDED_FIGURE", count=len(grounding.unmatched), mode=settings.grounding_check)
         if settings.grounding_check == "enforce":
             state.reply = UNGROUNDED_REPLY
+
+    claims = prohibited_claims(state.reply)
+    if claims:
+        # Never configurable: an approval promise is replaced in every mode (spec principle 5).
+        grounding_status = "withheld"
+        await repo.write_audit(AuditEvent(event="PROHIBITED_CLAIM", outcome="withheld",
+                                          outputs={"claims": claims[:5]}, **audit_base))
+        log.warning("PROHIBITED_CLAIM", count=len(claims))
+        state.reply = APPROVAL_REPLY
 
     named = [f for f in extract_figures(message) if f.text.upper().startswith("RM")]
     named_price = str(named[-1].value * named[-1].multiplier) if named else None
