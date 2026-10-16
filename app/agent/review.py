@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import timedelta
 from typing import Any
 
 from app.agent.state import (
+    FieldValueError,
     apply_confirmation,
     build_profile,
+    check_stated_figures,
     derive_status,
+    drop_stale_income,
     flatten_profile,
     validate_proposed,
 )
@@ -26,6 +30,7 @@ from app.storage.documents import (
 from app.storage.models import (
     AuditEvent,
     DocumentRecord,
+    FieldProvenance,
     ProfileRecord,
     ProfileStatus,
     SessionRecord,
@@ -182,6 +187,7 @@ async def confirm_extraction(
     await repo.save_profile(ProfileRecord(
         session_id=session.session_id, user_id=user_id, status=record.status if record else "EXTRACTED",
         confirmed_at=utcnow(), confirmed_fields=fields, profile=profile, field_provenance=provenance,
+        questions_asked=record.questions_asked if record else [],
     ))
     session, record = await refresh_status(repo, session)
 
@@ -209,10 +215,13 @@ async def load_demo_profile(
     demo = await repo.get_demo_profile(demo_id)
     fields = flatten_profile(demo.profile)
     profile, missing = build_profile(fields)
+    # Choosing a demo profile is the user's confirmation of every value in it.
+    provenance = {path: demo.field_provenance.get(path, FieldProvenance(source="demo", confidence=1.0))
+                  .model_copy(update={"session_confirmed": True}) for path in fields}
     log.info("demo_profile.built", fields=len(fields), missing_fields=len(missing))
     await repo.save_profile(ProfileRecord(
         session_id=session.session_id, user_id=session.user_id, status="EXTRACTED", confirmed_at=utcnow(),
-        confirmed_fields=fields, profile=profile, field_provenance=demo.field_provenance,
+        confirmed_fields=fields, profile=profile, field_provenance=provenance,
     ))
     session, record = await refresh_status(repo, session)
     await repo.write_audit(AuditEvent(event="EXTRACTION_CONFIRMED", request_id=request_id,
@@ -223,22 +232,62 @@ async def load_demo_profile(
 
 async def record_stated_figures(
     *, repo: Repository, session: SessionRecord, figures: dict[str, Any], request_id: str,
-) -> tuple[SessionRecord, ProfileRecord | None, list[str]]:
+    current_text: str, earlier_texts: list[str], turn_id: str,
+) -> tuple[SessionRecord, ProfileRecord | None, list[str], list[str], bool]:
     """Figures the user asserts in chat (spec 16): stored as user_stated, so every later result is labelled unverified.
 
-    Uses the same allowlist and validators as review corrections, so nothing outside the profile schema gets in.
+    Uses the same allowlist and validators as review corrections, and only accepts values that appear in the user's
+    own messages. Returns (session, record, recorded paths, missing fields, income basis question asked).
     """
     record = await repo.get_profile(session.session_id, session.user_id)
+    asked = list(record.questions_asked) if record else []
+    check = check_stated_figures(figures, current_text, earlier_texts, "income_basis" in asked)
+    if check.ask_income_basis:
+        asked.append("income_basis")
     fields, provenance, recorded = apply_confirmation(
         record.confirmed_fields if record else {}, record.field_provenance if record else {}, {}, "user_stated",
-        figures)
+        check.figures, turn_id=turn_id)
+    for path, when in check.turn_of.items():
+        if when == "earlier":
+            provenance[path] = provenance[path].model_copy(update={"turn_id": None})
+    drop_stale_income(fields, provenance, set(recorded))
     profile, missing = build_profile(fields)
     await repo.save_profile(ProfileRecord(
         session_id=session.session_id, user_id=session.user_id, status=record.status if record else "EXTRACTED",
-        confirmed_at=utcnow(), confirmed_fields=fields, profile=profile, field_provenance=provenance))
+        confirmed_at=utcnow(), confirmed_fields=fields, profile=profile, field_provenance=provenance,
+        questions_asked=asked))
     session, record = await refresh_status(repo, session)
     for path in recorded:
         await repo.write_audit(AuditEvent(event="EXTRACTION_CORRECTED", request_id=request_id,
                                           session_id=session.session_id, user_id=session.user_id,
                                           outcome="USER_STATED", outputs={"path": path, "source": "user_stated"}))
-    return session, record, missing
+    return session, record, recorded, missing, check.ask_income_basis
+
+
+_AFFIRM = re.compile(r"\b(yes|yep|yup|ya|ye|correct|right|confirm(ed)?|ok(ay)?|sure|betul|benar|ha'?ah|still)\b|对|是的|没错|确认",
+                     re.IGNORECASE)
+
+
+async def confirm_stored_figures(
+    *, repo: Repository, session: SessionRecord, paths: list[str], still_correct: bool, current_text: str,
+) -> tuple[SessionRecord, ProfileRecord | None, list[str]]:
+    """The user's answer to a re-confirmation question: keep (mark confirmed this session) or discard stored values."""
+    record = await repo.get_profile(session.session_id, session.user_id)
+    if record is None:
+        return session, None, []
+    pending = [p for p, v in record.field_provenance.items() if not v.session_confirmed]
+    targets = [p for p in (paths or pending) if p in pending]
+    if still_correct and not _AFFIRM.search(current_text):
+        raise FieldValueError("paths", "the user has not confirmed these values; ask them first")
+    fields, provenance = dict(record.confirmed_fields), dict(record.field_provenance)
+    for path in targets:
+        if still_correct:
+            provenance[path] = provenance[path].model_copy(update={"session_confirmed": True})
+        else:
+            fields.pop(path, None)
+            provenance.pop(path, None)
+    profile, _ = build_profile(fields)
+    await repo.save_profile(record.model_copy(update={"confirmed_fields": fields, "field_provenance": provenance,
+                                                      "profile": profile, "confirmed_at": utcnow()}))
+    session, record = await refresh_status(repo, session)
+    return session, record, targets

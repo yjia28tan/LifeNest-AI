@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from app.engine.dsr import available_monthly
+from app.engine.dsr import available_monthly, dsr_cap_pct, net_income
 from app.engine.models import Profile
 from app.engine.money import HUNDRED, ZERO, floor_thousand, money, pct
 from app.engine.rules import Rules
@@ -27,11 +27,17 @@ class LoanCapacityResult(BaseModel):
     monthly_instalment: Decimal
     tenure_years: int
     tenure_capped_by_age: bool
+    tenure_reason: str
+    age: int
+    max_age_at_maturity: int
     effective_rate_pct: Decimal
     margin_of_finance_pct: Decimal
     down_payment_pct: Decimal
+    property_number: int
+    first_home_incentives_eligible: bool
     limiting_factor: LimitingFactor
     available_monthly: Decimal
+    dsr_cap_pct: Decimal
     price_by_dsr: Decimal
     price_by_cash: Decimal | None
     rules_version: str
@@ -43,6 +49,17 @@ def resolve_tenure(age: int, rules: Rules, requested_years: int | None = None) -
     wanted = max(wanted, 0)
     age_cap = max(rules.tenure.max_age_at_maturity - age, 0)
     return min(wanted, age_cap), age_cap < wanted
+
+
+def tenure_reason(age: int, rules: Rules, tenure: int, capped_by_age: bool) -> str:
+    """Plain statement of why tenure = min(max_years, max_age_at_maturity − age)."""
+    limit_age, max_years = rules.tenure.max_age_at_maturity, rules.tenure.max_years
+    if capped_by_age:
+        return f"Capped at {tenure} years: the loan must end by age {limit_age} and you are {age}."
+    if tenure == max_years:
+        return (f"{tenure} years is the maximum tenure; at age {age} the age-{limit_age} limit "
+                f"would allow {limit_age - age}.")
+    return f"{tenure} years as requested."
 
 
 def annuity_factor(rate_pct: Decimal, months: int) -> Decimal:
@@ -114,13 +131,14 @@ def loan_capacity(
     if price_by_cash is not None and price_by_cash < price_by_dsr:
         raw_price = price_by_cash
         # A reduced margin is what inflates the cash requirement, so name it as the cause.
-        factor = "MARGIN_OF_FINANCE" if mof < rules.margin_of_finance.first_property_pct else "CASH_UPFRONT"
+        factor = "MARGIN_OF_FINANCE" if mof < rules.margin_of_finance_pct(0) else "CASH_UPFRONT"
     else:
         raw_price = price_by_dsr
         factor = "TENURE_AGE" if capped_by_age else "DSR"
 
     max_price = floor_thousand(raw_price)
     max_loan = money(max_price * mof / HUNDRED)
+    net = net_income(profile, rules)
 
     return LoanCapacityResult(
         max_loan=max_loan,
@@ -128,11 +146,17 @@ def loan_capacity(
         monthly_instalment=money(instalment_for(max_loan, rate, tenure)),
         tenure_years=tenure,
         tenure_capped_by_age=capped_by_age,
+        tenure_reason=tenure_reason(profile.person.age, rules, tenure, capped_by_age),
+        age=profile.person.age,
+        max_age_at_maturity=rules.tenure.max_age_at_maturity,
         effective_rate_pct=pct(rate),
         margin_of_finance_pct=pct(mof),
         down_payment_pct=pct(HUNDRED - mof),
+        property_number=rules.property_count_rules.for_purchase(profile.existing_housing_loans).property_number,
+        first_home_incentives_eligible=rules.first_home_incentives_eligible(profile.existing_housing_loans),
         limiting_factor=factor,
         available_monthly=money(avail),
+        dsr_cap_pct=pct(dsr_cap_pct(net, rules)),
         price_by_dsr=floor_thousand(price_by_dsr),
         price_by_cash=None if price_by_cash is None else money(price_by_cash),
         rules_version=rules.version,

@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.engine.dsr import compute_dsr, max_dsr_pct_for
+from app.engine.dsr import compute_dsr, dsr_cap_pct
 from tests.conftest import make_profile
 
 D = Decimal
@@ -27,7 +27,7 @@ def test_aina_worked_example(rules, aina) -> None:
      ("10000", "70"), ("10000.01", "75"), ("0", "60"), ("-100", "60")],
 )
 def test_band_boundaries_are_inclusive_upper(rules, net, expected) -> None:
-    assert max_dsr_pct_for(D(net), rules) == D(expected)
+    assert dsr_cap_pct(D(net), rules) == D(expected)
 
 
 def test_variable_income_haircut(rules) -> None:

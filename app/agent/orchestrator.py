@@ -80,14 +80,15 @@ async def run_turn(services: Services, ctx: RequestContext, session: SessionReco
     record = await repo.get_profile(session.session_id, ctx.user_id)
     history = await repo.list_messages(session.session_id, limit=HISTORY_TURNS * 2)
     log.info("turn.context.loaded", history_messages=len(history), has_profile=bool(record and record.profile))
-    profile_json = record.profile.model_dump(mode="json") if record and record.profile else None
 
     system = render_system_prompt(timezone=settings.timezone, profile_status=session.profile_status,
-                                  profile=profile_json if session.profile_status == "CONFIRMED" else None,
                                   rules_version=services.rules.version)
     messages = [*_history_messages(history), {"role": "user", "content": message}]
     registry = ToolRegistry(timeout_seconds=settings.tool_timeout_seconds)
-    tctx = ToolContext(services=services, request=ctx, session=session, record=record)
+    turn_id = new_id("turn")
+    earlier_user_texts = [m.content for m in history if m.role == "user"]
+    tctx = ToolContext(services=services, request=ctx, session=session, record=record, turn_id=turn_id,
+                       user_message=message, earlier_user_texts=earlier_user_texts)
     state = TurnState()
 
     audit_base = {"request_id": ctx.request_id, "session_id": session.session_id, "user_id": ctx.user_id}
@@ -107,12 +108,13 @@ async def run_turn(services: Services, ctx: RequestContext, session: SessionReco
 
     computations = [o.computation for o in state.outcomes if o.computation]
     sources = [s for o in state.outcomes for s in o.sources]
-    user_texts = [m.content for m in history if m.role == "user"] + [message]
+    user_texts = [*earlier_user_texts, message]
     # A user-stated figure recorded during the turn may have changed the profile and its status.
-    session, record = tctx.session, tctx.record
-    profile_json = record.profile.model_dump(mode="json") if record and record.profile else None
+    session = tctx.session
+    # Questions the tools asked (needs_confirmation) may quote stored values; nothing else outside tool output.
+    questions = [o.result.get("needs_confirmation", []) for o in state.outcomes]
 
-    grounding = check_grounding(state.reply, allowed_values(computations, sources, user_texts, profile_json))
+    grounding = check_grounding(state.reply, allowed_values(computations, sources, user_texts, questions))
     log.info("turn.grounding.checked", ok=grounding.ok, unmatched=len(grounding.unmatched))
     grounding_status = "ok"
     if not grounding.ok:
@@ -136,7 +138,7 @@ async def run_turn(services: Services, ctx: RequestContext, session: SessionReco
     named_price = str(named[-1].value * named[-1].multiplier) if named else None
     cards = build_cards(computations, sources, named_price)
     tool_trace = [o.trace for o in state.outcomes]
-    turn_id, now = new_id("turn"), utcnow()
+    now = utcnow()
     message_id = new_id("msg")
 
     await repo.add_message(session.session_id, MessageRecord(

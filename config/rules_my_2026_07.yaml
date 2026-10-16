@@ -25,10 +25,40 @@ tenure:
   max_years: 35
   max_age_at_maturity: 70
 
-margin_of_finance:
-  first_property_pct: 90
-  second_property_pct: 90
-  third_and_subsequent_pct: 70
+# Keyed by which property this purchase would be (1 = first home). The last entry covers all later ones.
+property_count_rules:
+  source: UNVERIFIED
+  verified_on: null
+  tiers:
+    - { property_number: 1, margin_of_finance_pct: 90, first_home_incentives: true }
+    - { property_number: 2, margin_of_finance_pct: 90, first_home_incentives: false }
+    - { property_number: 3, margin_of_finance_pct: 70, first_home_incentives: false }
+
+# Employee-side deductions used to derive net from a stated gross salary. Estimate only:
+# SOCSO/EIS are really table-based and PCB depends on reliefs; payslip figures always win.
+statutory_deductions:
+  source: UNVERIFIED
+  verified_on: null
+  epf_employee_pct: 11
+  socso_employee_pct: 0.5
+  eis_employee_pct: 0.2
+  socso_eis_wage_ceiling: 6000
+  pcb:
+    individual_relief_annual: 9000
+    epf_relief_cap_annual: 4000
+    rebate_annual: 400
+    rebate_chargeable_income_up_to: 35000
+    tax_tiers:               # resident individual, on annual chargeable income
+      - { up_to: 5000,    rate_pct: 0 }
+      - { up_to: 20000,   rate_pct: 1 }
+      - { up_to: 35000,   rate_pct: 3 }
+      - { up_to: 50000,   rate_pct: 6 }
+      - { up_to: 70000,   rate_pct: 11 }
+      - { up_to: 100000,  rate_pct: 19 }
+      - { up_to: 400000,  rate_pct: 25 }
+      - { up_to: 600000,  rate_pct: 26 }
+      - { up_to: 2000000, rate_pct: 28 }
+      - { up_to: null,    rate_pct: 30 }
 
 epf:
   structure: three_account_2024
@@ -69,6 +99,15 @@ transport:                   # used by location_cost
 
 projection:
   horizon_months: 120          # "the next decade" for scenarios and path-to-approval
+  income_growth_pct_per_year: 3   # timeline baseline; planning assumption, not a statistic
+
+# Typical entry price for a modest home, used only when the user names an area but no price.
+price_bands:
+  source: UNVERIFIED
+  verified_on: null
+  areas:
+    - { name: Penang Island,  typical_entry_price: 450000, cheaper_alternative: Seberang Perai }
+    - { name: Seberang Perai, typical_entry_price: 300000, cheaper_alternative: null }
 
 locations:                   # used by location_cost; indicative routing model
   road_distance_factor: 1.3    # road km per straight-line km

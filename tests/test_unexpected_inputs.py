@@ -100,7 +100,8 @@ def test_injection_inside_a_document_is_data(client) -> None:
     assert confirmed["profile"]["income"]["gross_monthly"] == "6200.00"
     body = say(client, sid, "Can I afford a RM2,000,000 home?")
     assert Decimal(outputs(body, "loan_capacity")["max_property_price"]) < Decimal("2000000")
-    assert body["reply"].startswith("No.")
+    # Opens with the binding constraint, never a bare "No" / "you cannot afford".
+    assert "binding limit" in body["reply"].split("\n")[0] and not body["reply"].startswith("No")
 
 
 # --- documents -------------------------------------------------------------------------------------------
@@ -172,7 +173,7 @@ def test_zero_income_still_gets_a_useful_plan(client) -> None:
     assert dsr["dsr_pct"] is None and dsr["verdict_band"] == "ABOVE_BAND"
     plan = outputs(say(client, sid, "What would I need to do to reach RM300,000?"), "plan_path_to_approval")
     actions = {a["action"]: a for a in plan["actions"]}
-    assert Decimal(actions["INCREASE_NET_INCOME"]["amount"]) > 0
+    assert Decimal(actions["REACH_NET_INCOME"]["amount"]) > 0
 
 
 def test_commitments_exceeding_income(client) -> None:

@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from app.engine.cashflow import commitments_in_month, living_costs
-from app.engine.dsr import net_income
+from app.engine.dsr import dsr_cap_pct, net_income
 from app.engine.loan_capacity import (
     LoanCapacityResult,
     annuity_factor,
@@ -17,15 +17,15 @@ from app.engine.loan_capacity import (
     resolve_tenure,
 )
 from app.engine.models import Commitment, Profile
-from app.engine.money import HUNDRED, ZERO, money
+from app.engine.money import HUNDRED, ZERO, money, pct
 from app.engine.rules import Rules
-from app.engine.upfront_costs import cash_needed
+from app.engine.upfront_costs import SavingsTarget, cash_needed, savings_target
 
 ActionType = Literal[
     "CLEAR_COMMITMENT",
     "COMMITMENT_ENDS",
     "SAVE_UPFRONT_CASH",
-    "INCREASE_NET_INCOME",
+    "REACH_NET_INCOME",
     "REDUCE_TARGET_PRICE",
 ]
 
@@ -38,6 +38,8 @@ class PlanAction(BaseModel):
     amount: Decimal
     monthly_saving: Decimal
     by_month: int
+    # REACH_NET_INCOME only: required net income minus today's. An income rise, never a savings figure.
+    income_gap: Decimal | None = None
 
 
 class PathToApprovalResult(BaseModel):
@@ -48,6 +50,11 @@ class PathToApprovalResult(BaseModel):
     current_max_property_price: Decimal
     best_max_property_price: Decimal
     best_max_property_price_month: int
+    current_net_income: Decimal
+    dsr_cap_pct_at_current_income: Decimal
+    required_net_income: Decimal | None
+    dsr_cap_pct_at_required_income: Decimal | None
+    savings_target: SavingsTarget
     actions: tuple[PlanAction, ...]
     assumptions: tuple[str, ...]
     rules_version: str
@@ -66,15 +73,29 @@ class _Debt:
 
 
 def required_net_income(available_needed: Decimal, commitments: Decimal, rules: Rules) -> Decimal:
-    """Smallest net monthly income whose DSR band leaves `available_needed` after commitments."""
-    floor = ZERO
-    for band in rules.dsr.max_dsr_pct_by_income_band:
-        net = (available_needed + commitments) * HUNDRED / band.max_dsr_pct
-        if band.up_to_net_monthly is None or net <= band.up_to_net_monthly:
-            return max(net, floor)
-        # Band upper bounds are inclusive, so the next band starts one sen above.
-        floor = band.up_to_net_monthly + Decimal("0.01")
-    raise AssertionError("rules validation guarantees an open-ended final band")
+    """Smallest net income N with N × dsr_cap_pct(N) / 100 ≥ available_needed + commitments.
+
+    N × cap(N) only steps up at band edges, so: bisect to the cent, then return the exact N = need × 100 / cap
+    when that N sits in the same band, else the band edge the bisection found.
+    """
+    need = available_needed + commitments
+    if need <= ZERO:
+        return ZERO
+
+    def enough(cents: int) -> bool:
+        n = Decimal(cents) / HUNDRED
+        return n * dsr_cap_pct(n, rules) / HUNDRED >= need
+
+    lo, hi = 0, 1
+    while not enough(hi):
+        lo, hi = hi, hi * 2
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        lo, hi = (lo, mid) if enough(mid) else (mid, hi)
+    edge = Decimal(hi) / HUNDRED
+    cap = dsr_cap_pct(edge, rules)
+    exact = need * HUNDRED / cap
+    return exact if dsr_cap_pct(exact, rules) == cap else edge
 
 
 def plan_path_to_approval(profile: Profile, rules: Rules, target_property_price: Decimal) -> PathToApprovalResult:
@@ -157,20 +178,23 @@ def plan_path_to_approval(profile: Profile, rules: Rules, target_property_price:
                     action="SAVE_UPFRONT_CASH", amount=money(cash_needed(target, mof, rules)),
                     monthly_saving=money(max(surplus, ZERO)), by_month=month,
                 ))
-            return _result(target, month, start_cap, best_price, best_month, actions, assumptions, rules)
+            return _result(target, month, start_cap, best_price, best_month, actions, assumptions, rules,
+                           profile, net, None)
 
     final_cap = loan_capacity(snapshot(horizon), rules)
     needed_now = available_needed(0)
+    required = None
     if final_cap.price_by_dsr < target and needed_now is not None:
         required = required_net_income(needed_now, commitments_in_month(profile, 1), rules)
         actions.append(PlanAction(
-            action="INCREASE_NET_INCOME", amount=money(required),
-            monthly_saving=money(max(required - net, ZERO)), by_month=0,
+            action="REACH_NET_INCOME", amount=money(required), monthly_saving=money(ZERO), by_month=0,
+            income_gap=money(max(required - net, ZERO)),
         ))
     actions.append(PlanAction(
         action="REDUCE_TARGET_PRICE", amount=best_price, monthly_saving=money(ZERO), by_month=best_month,
     ))
-    return _result(target, None, start_cap, best_price, best_month, actions, assumptions, rules)
+    return _result(target, None, start_cap, best_price, best_month, actions, assumptions, rules,
+                   profile, net, required)
 
 
 def _result(
@@ -182,13 +206,22 @@ def _result(
     actions: list[PlanAction],
     assumptions: list[str],
     rules: Rules,
+    profile: Profile,
+    net: Decimal,
+    required: Decimal | None,
 ) -> PathToApprovalResult:
+    months = eligible if eligible else rules.projection.horizon_months
     return PathToApprovalResult(
         target_property_price=money(target),
         eligible_from_month=eligible,
         current_max_property_price=start_cap.max_property_price,
         best_max_property_price=best_price,
         best_max_property_price_month=best_month,
+        current_net_income=money(net),
+        dsr_cap_pct_at_current_income=pct(dsr_cap_pct(net, rules)),
+        required_net_income=None if required is None else money(required),
+        dsr_cap_pct_at_required_income=None if required is None else pct(dsr_cap_pct(required, rules)),
+        savings_target=savings_target(target, profile, rules, months),
         actions=tuple(actions),
         assumptions=tuple(assumptions),
         rules_version=rules.version,

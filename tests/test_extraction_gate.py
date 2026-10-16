@@ -91,7 +91,8 @@ def test_confirm_without_corrections_confirms_profile(client) -> None:
     assert body["profile_status"] == "CONFIRMED" and body["missing_fields"] == []
     assert body["profile"]["income"]["gross_monthly"] == "6200.00"
     assert body["field_provenance"]["income.gross_monthly"] == {
-        "source": "payslip", "confidence": 0.97, "corrected_by_user": False}
+        "source": "payslip", "confidence": 0.97, "corrected_by_user": False, "session_confirmed": True,
+        "turn_id": None}
     assert _status(client, sid) == "CONFIRMED"
     assert _audit(client, sid, "EXTRACTION_CONFIRMED")
 
@@ -130,7 +131,7 @@ def test_epf_alone_cannot_confirm_a_profile(client) -> None:
     action = _extract(client, sid, _upload(client, sid, "aina_epf.png", "epf_statement")).json()["action_id"]
     body = client.post(f"/actions/{action}/confirm", headers=ALICE).json()
     assert body["profile_status"] == "EXTRACTED" and body["profile"] is None
-    assert set(body["missing_fields"]) == {"person.age", "income.gross_monthly", "income.statutory_deductions"}
+    assert set(body["missing_fields"]) == {"person.age", "income.gross_monthly"}
 
 
 # --- corrections ------------------------------------------------------------------------------
@@ -142,7 +143,8 @@ def test_corrections_are_tracked_and_audited(client) -> None:
                        json={"corrections": {"income.gross_monthly": "6,200", "person.age": 29}}).json()
     assert body["profile"]["income"]["gross_monthly"] == "6200.00"
     assert body["field_provenance"]["income.gross_monthly"] == {
-        "source": "user_corrected", "confidence": 1.0, "corrected_by_user": True}
+        "source": "user_corrected", "confidence": 1.0, "corrected_by_user": True, "session_confirmed": True,
+        "turn_id": None}
     corrected = _audit(client, sid, "EXTRACTION_CORRECTED")
     assert sorted(e.outputs["path"] for e in corrected) == ["income.gross_monthly", "person.age"]
 

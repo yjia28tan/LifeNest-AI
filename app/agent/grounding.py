@@ -79,10 +79,18 @@ def collect_numbers(*sources: Any) -> set[Decimal]:
     return found
 
 
+_HUNDRED = Decimal(100)
+
+
 def _matches(fig: Figure, allowed: Iterable[Decimal]) -> bool:
     quantum = Decimal(1).scaleb(-fig.decimals)
+    # Narrative RM figures are rounded to the nearest RM100 (spec: presentation rounding, not invention).
+    hundreds = fig.text.upper().startswith("RM") and fig.decimals == 0 and fig.multiplier == 1 \
+        and fig.value % _HUNDRED == 0
     for a in allowed:
         if (a / fig.multiplier).quantize(quantum, rounding=ROUND_HALF_UP) == fig.value:
+            return True
+        if hundreds and (a / _HUNDRED).quantize(Decimal(1), rounding=ROUND_HALF_UP) * _HUNDRED == fig.value:
             return True
     return False
 
@@ -94,10 +102,10 @@ def check_grounding(reply: str, allowed: set[Decimal]) -> GroundingResult:
 
 
 def allowed_values(computations: list[dict[str, Any]], sources: list[dict[str, Any]],
-                   user_texts: list[str], profile: dict[str, Any] | None) -> set[Decimal]:
-    # Confirmed profile values were supplied by the user (from their own documents) and reviewed by them.
+                   user_texts: list[str], extra: Any = None) -> set[Decimal]:
+    """Tool outputs, cited sources, the user's own words, and `extra` (e.g. tool confirmation questions)."""
     return collect_numbers([c.get("outputs", {}) for c in computations],
-                           [s.get("content", "") for s in sources], user_texts, profile or {})
+                           [s.get("content", "") for s in sources], user_texts, extra or {})
 
 
 # Spec principle 5: output is indicative, never an approval or guarantee. Matched in EN, BM and 中文.

@@ -229,18 +229,20 @@ def test_other_users_cannot_chat_in_a_session(client) -> None:
 
 # --- prompt and schemas ---------------------------------------------------------------------------------
 
-def test_system_prompt_carries_state_but_no_profile_until_confirmed() -> None:
-    prompt = render_system_prompt(timezone="Asia/Kuala_Lumpur", profile_status="EXTRACTED", profile=None,
+def test_system_prompt_carries_state_but_never_the_profile() -> None:
+    prompt = render_system_prompt(timezone="Asia/Kuala_Lumpur", profile_status="EXTRACTED",
                                   rules_version="my-2026-07")
-    assert "Profile status: EXTRACTED" in prompt and "Confirmed profile: none" in prompt
-    assert "Rules version: my-2026-07" in prompt and "Never state a monetary figure" in prompt
+    assert "Profile status: EXTRACTED" in prompt and "Confirmed profile" not in prompt
+    assert "Rules version: my-2026-07" in prompt and "Only state numbers that appear in a tool result" in prompt
+    assert "needs_confirmation" in prompt and "affordability_timeline" in prompt
 
 
 def test_tool_schemas_are_function_calling_friendly() -> None:
     specs = {s.name: s.input_schema for s in ToolRegistry().specs()}
     assert set(specs) == {"compute_dsr", "loan_capacity", "epf_withdrawal", "upfront_costs", "location_cost",
                           "simulate_scenario", "plan_path_to_approval", "match_affordable_stock",
-                          "search_regulation", "record_stated_figures"}
+                          "search_regulation", "record_stated_figures", "affordability_timeline",
+                          "confirm_stored_figures"}
     text = repr(specs)
     assert "anyOf" not in text and "'title'" not in text and "user_id" not in text
     assert specs["upfront_costs"]["required"] == ["property_price"]

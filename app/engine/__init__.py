@@ -8,8 +8,10 @@ from app.engine.models import Commitment, Employment, EPFBalances, Income, Perso
 from app.engine.path_to_approval import PathToApprovalResult, PlanAction, plan_path_to_approval
 from app.engine.rules import Rules, load_rules
 from app.engine.scenarios import ScenarioResult, simulate_scenario
+from app.engine.statutory import IncomeBreakdown, income_breakdown
 from app.engine.stock_match import ExceedsComputedCapacityError, Listing, match_affordable_stock
-from app.engine.upfront_costs import UpfrontCostsResult, upfront_costs
+from app.engine.timeline import TimelineResult, affordability_timeline
+from app.engine.upfront_costs import SavingsTarget, UpfrontCostsResult, savings_target, upfront_costs
 
 __all__ = [
     "Commitment",
@@ -19,6 +21,7 @@ __all__ = [
     "Employment",
     "ExceedsComputedCapacityError",
     "Income",
+    "IncomeBreakdown",
     "Listing",
     "LoanCapacityResult",
     "LocationCostResult",
@@ -27,16 +30,21 @@ __all__ = [
     "PlanAction",
     "Profile",
     "Rules",
+    "SavingsTarget",
     "ScenarioResult",
+    "TimelineResult",
     "UnknownAreaError",
     "UpfrontCostsResult",
+    "affordability_timeline",
     "compute_dsr",
     "epf_withdrawal",
+    "income_breakdown",
     "load_rules",
     "loan_capacity",
     "location_cost",
     "match_affordable_stock",
     "plan_path_to_approval",
+    "savings_target",
     "simulate_scenario",
     "upfront_costs",
 ]

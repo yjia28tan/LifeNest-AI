@@ -10,7 +10,7 @@ said SAFE; the spec's own parameters leave her RM222/month of headroom).
 from __future__ import annotations
 
 import asyncio
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from urllib.parse import urlparse
 
@@ -133,7 +133,7 @@ class TestJourney:
 
     def test_3_the_honest_number(self, journey: Journey) -> None:
         body = journey.say("I'm looking at a RM750,000 condo in Cheras, can I afford it?")
-        assert tools(body) == ["compute_dsr", "loan_capacity", "upfront_costs"]
+        assert tools(body) == ["compute_dsr", "loan_capacity", "upfront_costs", "plan_path_to_approval"]
         engine = loan_capacity(journey.profile, self.rules)
         [cap] = journey.outputs(body, "loan_capacity")
         [costs] = journey.outputs(body, "upfront_costs")
@@ -144,8 +144,10 @@ class TestJourney:
 
         verdict = next(card for card in body["cards"] if card["type"] == "affordability_verdict")["data"]
         assert verdict["max_property_price"] == cap["max_property_price"] and verdict["named_price"] == "750000"
-        assert body["reply"].startswith("No.")
+        assert body["reply"].startswith("The cash needed upfront is the binding limit")
+        assert "cannot afford" not in body["reply"].lower()
         assert f"RM{engine.max_property_price:,.0f}" in body["reply"] and "cash needed upfront" in body["reply"]
+        assert "Tenure: 35 years is the maximum tenure" in body["reply"]
         journey.step3 = {"loan_capacity": cap, "compute_dsr": journey.outputs(body, "compute_dsr")[0]}
 
     def test_4_why_cites_regulations(self, journey: Journey) -> None:
@@ -180,7 +182,8 @@ class TestJourney:
         assert Decimal(at_dream["monthly_shortfall"]) > Decimal(at_capacity["monthly_shortfall"]) > 0
 
         assert f"month {at_capacity['break_month']}" in body["reply"]
-        assert f"RM{Decimal(at_capacity['monthly_shortfall']):,.2f}" in body["reply"]
+        shortfall = (Decimal(at_capacity["monthly_shortfall"]) / 100).quantize(Decimal(1), ROUND_HALF_UP) * 100
+        assert f"RM{shortfall:,.0f}" in body["reply"]  # narrative rounds to RM100; the card keeps the exact value
         charts = [c["data"]["projection"] for c in body["cards"] if c["type"] == "scenario_result"]
         assert len(charts) == 2 and all(len(p) == self.rules.projection.horizon_months + 1 for p in charts)
 
@@ -217,8 +220,8 @@ class TestJourney:
 
     def test_9_same_question_in_bahasa_melayu(self, journey: Journey) -> None:
         body = journey.say("Saya tengok kondo RM750,000 di Cheras, boleh saya mampu beli?")
-        assert tools(body) == ["compute_dsr", "loan_capacity", "upfront_costs"]
-        assert body["reply"].startswith("Tidak.") and "Harga maksimum" in body["reply"]
+        assert tools(body) == ["compute_dsr", "loan_capacity", "upfront_costs", "plan_path_to_approval"]
+        assert body["reply"].startswith("Wang tunai pendahuluan") and "harga maksimum" in body["reply"]
         same = {k: v for k, v in journey.outputs(body, "loan_capacity")[0].items() if k != "inputs_echo"}
         before = {k: v for k, v in journey.step3["loan_capacity"].items() if k != "inputs_echo"}
         assert same == before

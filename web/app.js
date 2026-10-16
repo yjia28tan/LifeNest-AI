@@ -137,11 +137,40 @@ function verdictCard(d) {
       stat(t("instalment"), money(d.monthly_instalment)),
       stat(t("max_loan"), money(d.max_loan)),
       stat(t("tenure"), t("years", { n: d.tenure_years })),
-      stat(t("rate"), `${d.effective_rate_pct}%`)),
+      stat(t("rate"), `${d.effective_rate_pct}%`),
+      d.income?.gross_monthly ? stat(t("income"), t("income_gross_net", { gross: money(d.income.gross_monthly), net: money(d.income.net_monthly) })) : null),
     h("div", { class: "limit" }, h("strong", {}, `${t("limiting")}: `), t(`lf_${d.limiting_factor}`)),
+    d.tenure_reason ? h("div", { class: "muted small" }, `${t("tenure")}: ${d.tenure_reason}`) : null,
+    inputsUsed(d.inputs_used),
     h("div", { class: "meta" },
       h("span", {}, t("rules_version", { v: d.rules_version })),
       d.unverified_inputs?.length ? h("span", { class: "chip warn" }, t("unverified", { fields: d.unverified_inputs.join(", ") })) : null));
+}
+
+// Footer generated from the same provenance list the engine used, so every input (commitments included) is shown.
+function inputsUsed(items) {
+  if (!items?.length) return null;
+  return h("details", { class: "inputs-used" }, h("summary", {}, t("inputs_used")),
+    h("ul", {}, items.map((i) => h("li", {}, `${i.label}: ${i.value} — `,
+      h("span", { class: `chip ${i.provenance === "default" ? "" : "warn"}` }, t(`prov_${i.provenance}`, { source: words(i.source) }))))));
+}
+
+function timelineCard(d) {
+  const when = (r) => ({
+    AFFORDABLE: r.earliest_date,
+    NOT_WITHIN_HORIZON: t("tl_not_within", { years: d.horizon_years }),
+    NEEDS_INPUTS: t("tl_needs", { inputs: (r.inputs_needed || []).join(", ") }),
+    NOT_APPLICABLE: t("tl_na"),
+  })[r.status];
+  const rows = d.rows.map((r) => h("tr", {},
+    h("td", {}, t(`tl_${r.scenario}`) + (r.scenario === "cheaper_area" && r.area ? ` (${r.area})` : "")),
+    h("td", {}, money(r.target_price)), h("td", {}, when(r)), h("td", { class: "muted small" }, r.key_lever)));
+  return h("div", { class: "card" }, h("h3", {}, t("tl_title", { price: money(d.target_price) })),
+    h("table", { class: "costs" },
+      h("thead", {}, h("tr", {}, ["tl_scenario", "tl_target", "tl_date", "tl_lever"].map((k) => h("th", {}, t(k))))),
+      h("tbody", {}, rows)),
+    h("div", { class: "limit" }, h("strong", {}, `${t("limiting")}: `), t(`lf_${d.binding_constraint}`)),
+    h("div", { class: "muted small" }, `${t("tenure")}: ${d.tenure_reason}`));
 }
 
 function costsCard(d) {
@@ -170,12 +199,16 @@ function scenarioCard(d) {
 
 function pathCard(d) {
   const items = d.actions.map((a) => h("li", {},
-    h("span", { class: "when" }, a.action === "SAVE_UPFRONT_CASH" || a.action === "INCREASE_NET_INCOME"
+    h("span", { class: "when" }, a.action === "SAVE_UPFRONT_CASH" || a.action === "REACH_NET_INCOME"
       ? "" : `${t("month_n", { m: a.by_month })} · ${monthLabel(a.by_month)}`),
     t(`act_${a.action}`, { kind: words(a.commitment_type), amount: money(a.amount), monthly: money(a.monthly_saving) })));
   items.push(h("li", { class: "goal" }, h("strong", {}, d.eligible_from_month != null
     ? t("path_eligible", { m: d.eligible_from_month, date: monthLabel(d.eligible_from_month) })
     : t("path_not_eligible"))));
+  const st = d.savings_target;
+  if (st && Number(st.gap) > 0) {
+    items.push(h("li", {}, t("path_savings_target", { monthly: money(st.monthly_savings_target), months: st.months_to_target, total: money(st.total_needed) })));
+  }
   return h("div", { class: "card" }, h("h3", {}, t("path_title", { price: money(d.target_property_price) })),
     h("ul", { class: "timeline" }, items));
 }
@@ -196,6 +229,7 @@ function renderCards(cards) {
   for (const c of cards) {
     if (c.type === "affordability_verdict") wrap.append(verdictCard(c.data));
     else if (c.type === "cost_breakdown") wrap.append(costsCard(c.data));
+    else if (c.type === "affordability_timeline") wrap.append(timelineCard(c.data));
     else if (c.type === "path_to_approval") wrap.append(pathCard(c.data));
     else if (c.type === "property_matches") wrap.append(matchesCard(c.data));
   }
@@ -256,7 +290,24 @@ function renderMarkdown(text) {
     list = null;
     listTag = null;
   };
+  let tableRows = [];
+  const cells = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+  const flushTable = () => {
+    if (!tableRows.length) return;
+    const [head, ...body] = tableRows.filter((r) => !/^\s*\|?\s*:?-{3,}/.test(r));
+    root.append(h("table", { class: "costs" },
+      h("thead", {}, h("tr", {}, cells(head).map((c) => h("th", {}, inline(c))))),
+      h("tbody", {}, body.map((r) => h("tr", {}, cells(r).map((c) => h("td", {}, inline(c))))))));
+    tableRows = [];
+  };
   for (const line of text.split(/\r?\n/)) {
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      flushParagraph();
+      flushList();
+      tableRows.push(line);
+      continue;
+    }
+    flushTable();
     const heading = line.match(/^(#{1,4})\s+(.+)$/);
     const item = line.match(/^\s*[-*+]\s+(.+)$/);
     const orderedItem = line.match(/^\s*\d+[.)]\s+(.+)$/);
@@ -285,6 +336,7 @@ function renderMarkdown(text) {
   }
   flushParagraph();
   flushList();
+  flushTable();
   return root;
 }
 

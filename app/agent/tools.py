@@ -10,19 +10,24 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.agent.provenance import inputs_used, missing_questions, needs_confirmation
+from app.agent.state import build_profile
 from app.engine.dsr import compute_dsr
 from app.engine.epf import epf_withdrawal
 from app.engine.loan_capacity import loan_capacity
 from app.engine.location_cost import UnknownAreaError, location_cost
-from app.engine.models import Profile
+from app.engine.models import InputUsed, Profile, untrusted_inputs
 from app.engine.path_to_approval import plan_path_to_approval
 from app.engine.scenarios import simulate_scenario
 from app.engine.stock_match import ExceedsComputedCapacityError, match_affordable_stock
+from app.engine.timeline import affordability_timeline
 from app.engine.upfront_costs import upfront_costs
 from app.llm.gateway import ToolCall, ToolSpec
 from app.observability import get_logger
@@ -90,10 +95,26 @@ class SearchArgs(_Args):
 class StatedFiguresArgs(_Args):
     figures: dict[str, Any] = Field(
         min_length=1, max_length=6,
-        description="Profile path -> value the user explicitly stated about themselves, e.g. "
-                    "{\"income.gross_monthly\": 20000}. Allowed paths: person.age, person.dependants, "
-                    "income.gross_monthly, income.statutory_deductions, income.variable_component, "
-                    "epf.akaun_sejahtera, savings, existing_housing_loans.")
+        description="Profile path -> value the user explicitly wrote about themselves, e.g. "
+                    "{\"income.gross_monthly\": 4500}. Allowed paths: person.age, person.dependants, "
+                    "income.gross_monthly (a 'salary' or 'gaji' is gross), income.net_monthly (only when the user "
+                    "says net / take-home), income.statutory_deductions, income.variable_component, "
+                    "epf.akaun_sejahtera, savings, commitments, existing_housing_loans (2nd property = 1, "
+                    "3rd = 2). Never fill a value the user did not write: it is rejected.")
+
+
+class ConfirmStoredArgs(_Args):
+    paths: list[str] = Field(default_factory=list, max_length=12,
+                             description="Fields from needs_confirmation the user answered; empty = all of them")
+    still_correct: bool = Field(description="True only if the user said the stored values are still correct")
+
+
+class TimelineArgs(_Args):
+    target_property_price: float | None = Field(None, gt=0, le=MAX_PRICE,
+                                                description="Price the user named, in MYR. Omit if they named none")
+    area: str | None = Field(None, min_length=2, max_length=40,
+                             description="Area the user named, e.g. Penang Island; supplies a typical price if no "
+                                         "price was named, and a cheaper alternative area")
 
 
 @dataclass
@@ -102,6 +123,9 @@ class ToolContext:
     request: RequestContext
     session: SessionRecord
     record: ProfileRecord | None
+    turn_id: str | None = None
+    user_message: str = ""
+    earlier_user_texts: list[str] = field(default_factory=list)
 
     @property
     def profile(self) -> Profile | None:
@@ -113,6 +137,10 @@ class ToolContext:
     def unverified_inputs(self) -> list[str]:
         prov = self.record.field_provenance if self.record else {}
         return sorted(p for p, v in prov.items() if v.source == "user_stated")
+
+    def inputs_used(self) -> list[InputUsed]:
+        assert self.record is not None and self.record.profile is not None
+        return inputs_used(self.record, self.record.profile, self.services.rules, self.turn_id)
 
 
 @dataclass
@@ -247,13 +275,50 @@ async def _record_stated(t: ToolContext, a: StatedFiguresArgs) -> dict[str, Any]
     from app.agent.state import FieldValueError
 
     try:
-        session, record, missing = await record_stated_figures(
-            repo=t.services.repo, session=t.session, figures=a.figures, request_id=t.request.request_id)
+        session, record, recorded, missing, ask_basis = await record_stated_figures(
+            repo=t.services.repo, session=t.session, figures=a.figures, request_id=t.request.request_id,
+            current_text=t.user_message, earlier_texts=t.earlier_user_texts, turn_id=t.turn_id or "")
     except FieldValueError as exc:
         raise ToolFailure("VALIDATION_ERROR", str(exc)) from None
     t.session, t.record = session, record
-    return {"ok": True, "recorded": sorted(a.figures), "source": "user_stated", "verified": False,
-            "profile_status": session.profile_status, "missing_fields": missing}
+    result: dict[str, Any] = {"ok": True, "recorded": recorded, "source": "user_stated", "verified": False,
+                              "profile_status": session.profile_status, "missing_fields": missing}
+    if ask_basis:
+        result["needs_confirmation"] = [{
+            "field": "income.gross_monthly", "reason": "income_basis",
+            "question": "Is that your gross salary (before EPF and tax) or your net take-home pay?"}]
+    return result
+
+
+async def _confirm_stored(t: ToolContext, a: ConfirmStoredArgs) -> dict[str, Any]:
+    from app.agent.review import confirm_stored_figures
+    from app.agent.state import FieldValueError
+
+    try:
+        session, record, done = await confirm_stored_figures(
+            repo=t.services.repo, session=t.session, paths=a.paths, still_correct=a.still_correct,
+            current_text=t.user_message)
+    except FieldValueError as exc:
+        raise ToolFailure("VALIDATION_ERROR", str(exc)) from None
+    t.session, t.record = session, record
+    return {"ok": True, "kept" if a.still_correct else "removed": done, "profile_status": session.profile_status}
+
+
+async def _timeline(t: ToolContext, a: TimelineArgs) -> dict[str, Any]:
+    rules = t.services.rules
+    band = rules.price_bands.find(a.area) if a.area else None
+    if a.area and band is None:
+        raise ToolFailure("UNKNOWN_AREA", "That area has no configured price band; ask the user for a target price.",
+                          supported=[b.name for b in rules.price_bands.areas])
+    if a.target_property_price is None and band is None:
+        raise ToolFailure("VALIDATION_ERROR", "Ask the user for a target price or an area.")
+    price = _dec(a.target_property_price) if a.target_property_price else band.typical_entry_price  # type: ignore[union-attr]
+    cheaper = rules.price_bands.find(band.cheaper_alternative) if band and band.cheaper_alternative else None
+    today = datetime.now(ZoneInfo(t.services.settings.timezone)).date()
+    return _json(await asyncio.to_thread(
+        affordability_timeline, _profile(t), rules, price, today,
+        target_price_source="stated" if a.target_property_price else "price_band",
+        area=band.name if band else None, cheaper_area=cheaper))
 
 
 TOOLS: tuple[Tool, ...] = (
@@ -269,16 +334,26 @@ TOOLS: tuple[Tool, ...] = (
          LocationCostArgs, _location),
     Tool("simulate_scenario", "Month-by-month cashflow stress test of a life event after buying at a price. "
          "Returns SAFE/AT_RISK/BREAKS, break_month, monthly_shortfall and facts.", ScenarioArgs, _scenario),
-    Tool("plan_path_to_approval", "Dated actions that move the buyer from today's capacity to a target price.",
+    Tool("plan_path_to_approval", "Dated actions that move the buyer from today's capacity to a target price, the "
+         "net income the target needs (required_net_income, a level to REACH, not an increase), the DSR cap at "
+         "today's and at that income, and savings_target (deposit + fees + buffer, minus savings, per month).",
          PathArgs, _path),
+    Tool("affordability_timeline", "Use for every 'when can I afford' question. Simulates up to 10 years and "
+         "returns rows (scenario, target_price, earliest_date, key_lever) for baseline income growth, clearing "
+         "confirmed commitments, a joint applicant (needs inputs) and a cheaper area, plus the binding constraint "
+         "today and tenure_reason.", TimelineArgs, _timeline),
     Tool("match_affordable_stock", "Up to 6 listings at or below max_price. max_price must not exceed the "
          "computed max_property_price from loan_capacity.", StockArgs, _stock),
     Tool("search_regulation", "Search the Malaysian housing-finance regulation knowledge base. Cite title and "
          "section from the results.", SearchArgs, _search, computes=False),
     Tool("record_stated_figures", "Record a figure the user explicitly states about themselves instead of uploading "
-         "a document (e.g. 'assume I earn RM20,000'). Stored as user-stated and unverified; every later result is "
-         "labelled unverified. Never use for values found inside a document or for figures the user wants you to "
-         "'approve'.", StatedFiguresArgs, _record_stated, computes=False),
+         "a document (e.g. 'my salary is 4500', 'I'm 30', 'it would be my 3rd property'). Stored as user-stated "
+         "and unverified. Values the user did not write are rejected. Never use for values found inside a "
+         "document or for figures the user wants you to 'approve'.", StatedFiguresArgs, _record_stated,
+         computes=False),
+    Tool("confirm_stored_figures", "Apply the user's answer to a needs_confirmation question about stored values: "
+         "still_correct=true keeps them, false discards them so the user can restate.", ConfirmStoredArgs,
+         _confirm_stored, computes=False),
 )
 
 
@@ -339,15 +414,35 @@ class ToolRegistry:
             except ValidationError as exc:
                 raise ToolFailure("VALIDATION_ERROR", _validation_message(exc)) from None
             echo = args.model_dump(mode="json", exclude_none=True)
-            if tool.computes and t.profile is None:
-                raise ToolFailure("PROFILE_NOT_CONFIRMED",
-                                  "The buyer's profile has not been confirmed yet. Ask them to upload a payslip and "
-                                  "EPF statement and to confirm the extracted fields.")
+            used: list[InputUsed] = []
+            if tool.computes:
+                if t.profile is None:
+                    _, missing = build_profile(t.record.confirmed_fields if t.record else {})
+                    if t.record is None or not t.record.confirmed_fields:
+                        raise ToolFailure("PROFILE_NOT_CONFIRMED",
+                                          "The buyer's profile has not been confirmed yet. Ask them to upload a "
+                                          "payslip and EPF statement, or to tell you their salary and age.")
+                    raise ToolFailure("PROFILE_NOT_CONFIRMED", "Some required figures are missing; ask for them.",
+                                      missing_fields=missing,
+                                      needs_confirmation=missing_questions(missing, t.services.rules))
+                assert t.record is not None
+                pending = needs_confirmation(t.record)
+                if pending:
+                    raise ToolFailure("NEEDS_CONFIRMATION", "Ask these questions before giving any figures.",
+                                      needs_confirmation=pending)
+                used = t.inputs_used()
+                rejected = untrusted_inputs(used)
+                if rejected:
+                    raise ToolFailure("NEEDS_CONFIRMATION", "Some inputs were not stated or confirmed by the user.",
+                                      needs_confirmation=[{"field": i.field, "reason": i.provenance, "value": i.value,
+                                                           "question": f"Please confirm your {i.label}."}
+                                                          for i in rejected])
             data = await asyncio.wait_for(tool.handler(t, args), timeout=self.timeout_seconds)
             if tool.computes:
                 rules_version = t.services.rules.version
                 result: dict[str, Any] = {"ok": True, "currency": "MYR", "rules_version": rules_version,
-                                          "inputs_echo": echo, **data}
+                                          "inputs_echo": echo, **data,
+                                          "inputs_used": [i.model_dump() for i in used]}
                 if t.unverified_inputs:
                     result["unverified_inputs"] = t.unverified_inputs
                 computation = {"tool": call.name, "inputs_echo": echo, "outputs": result,

@@ -21,13 +21,18 @@ def build_cards(computations: list[dict[str, Any]], sources: list[dict[str, Any]
             "monthly_instalment": cap["monthly_instalment"], "tenure_years": cap["tenure_years"],
             "effective_rate_pct": cap["effective_rate_pct"], "limiting_factor": cap["limiting_factor"],
             "dsr_pct": dsr.get("dsr_pct"), "max_dsr_pct": dsr.get("max_dsr_pct"),
+            "income": dsr.get("income"), "tenure_reason": cap.get("tenure_reason"),
+            "margin_of_finance_pct": cap.get("margin_of_finance_pct"),
             "named_price": named_price, "unverified_inputs": cap.get("unverified_inputs", []),
+            "inputs_used": cap.get("inputs_used", []),
             "rules_version": cap["rules_version"],
         }})
     for c in computations:
         out = c["outputs"]
         if c["tool"] == "upfront_costs":
             cards.append({"type": "cost_breakdown", "data": out})
+        elif c["tool"] == "affordability_timeline":
+            cards.append({"type": "affordability_timeline", "data": out})
         elif c["tool"] == "simulate_scenario":
             cards.append({"type": "scenario_result", "data": {
                 k: out[k] for k in ("scenario", "property_price", "status", "break_month", "monthly_shortfall",

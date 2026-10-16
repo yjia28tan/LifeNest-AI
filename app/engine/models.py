@@ -3,8 +3,28 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+# Where an input figure came from. Only the first three may carry a user's financial figure into a computation.
+Provenance = Literal["stated_this_turn", "stated_earlier", "confirmed_from_profile", "default", "inferred"]
+TRUSTED_PROVENANCE: frozenset[str] = frozenset({"stated_this_turn", "stated_earlier", "confirmed_from_profile"})
+
+
+class InputUsed(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    field: str
+    label: str
+    value: str
+    provenance: Provenance
+    source: str
+
+
+def untrusted_inputs(inputs: list[InputUsed]) -> list[InputUsed]:
+    """Inputs the engine must refuse: anything not stated, confirmed, or a rules default."""
+    return [i for i in inputs if i.provenance not in TRUSTED_PROVENANCE and i.provenance != "default"]
 
 
 class _Model(BaseModel):
@@ -18,11 +38,18 @@ class Person(_Model):
 
 
 class Income(_Model):
-    gross_monthly: Decimal
-    statutory_deductions: Decimal = Field(default=Decimal("0"), ge=0)
+    gross_monthly: Decimal | None = None
+    # None = not known, so the engine derives it from gross with the rules config (never treated as zero).
+    statutory_deductions: Decimal | None = Field(default=None, ge=0)
     variable_component: Decimal = Field(default=Decimal("0"), ge=0)
-    # As printed on the payslip; the engine recomputes net from gross and deductions.
+    # Payslip net, or the user's stated take-home pay. Used only when gross is unknown.
     net_monthly: Decimal | None = None
+
+    @model_validator(mode="after")
+    def _gross_or_net(self) -> Income:
+        if self.gross_monthly is None and self.net_monthly is None:
+            raise ValueError("income needs gross_monthly or net_monthly")
+        return self
 
 
 class Commitment(_Model):

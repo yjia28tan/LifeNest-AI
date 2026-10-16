@@ -39,9 +39,13 @@ class SessionRecord(_Record):
 
 
 class FieldProvenance(_Record):
-    source: Literal["payslip", "epf_statement", "loan_statement", "user_stated", "user_corrected", "demo"]
+    source: Literal["payslip", "epf_statement", "loan_statement", "user_stated", "user_corrected", "demo",
+                    "inferred"]
     confidence: float = Field(ge=0, le=1)
     corrected_by_user: bool = False
+    # Records written before this flag existed load as False and must be re-confirmed before use.
+    session_confirmed: bool = False
+    turn_id: str | None = None
 
 
 class ProfileRecord(_Record):
@@ -53,6 +57,8 @@ class ProfileRecord(_Record):
     confirmed_fields: dict[str, Any] = {}
     profile: Profile | None = None
     field_provenance: dict[str, FieldProvenance] = {}
+    # One-time clarifying questions already put to the user (e.g. "income_basis").
+    questions_asked: list[str] = []
 
 
 class MessageRecord(_Record):

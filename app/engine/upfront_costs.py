@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
+from app.engine.cashflow import living_costs
 from app.engine.epf import eligible_withdrawal
 from app.engine.models import Profile
 from app.engine.money import HUNDRED, ZERO, money, pct, tiered_marginal
@@ -30,6 +31,7 @@ class UpfrontCostsResult(BaseModel):
     shortfall_after_epf: Decimal
     savings_declared: Decimal | None
     shortfall_after_savings: Decimal | None
+    first_home_incentives_eligible: bool
     rules_version: str
 
 
@@ -76,6 +78,54 @@ def upfront_costs(property_price: Decimal, profile: Profile, rules: Rules) -> Up
         shortfall_after_epf=after_epf,
         savings_declared=None if profile.savings is None else money(profile.savings),
         shortfall_after_savings=after_savings,
+        first_home_incentives_eligible=rules.first_home_incentives_eligible(profile.existing_housing_loans),
         rules_version=rules.version,
         **c,
+    )
+
+
+class SavingsTarget(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    property_price: Decimal
+    down_payment: Decimal
+    legal_fees: Decimal
+    stamp_duty: Decimal
+    valuation: Decimal
+    disbursements: Decimal
+    buffer: Decimal
+    buffer_months: int
+    total_needed: Decimal
+    current_savings: Decimal
+    savings_declared: bool
+    epf_applied: Decimal
+    gap: Decimal
+    months_to_target: int
+    monthly_savings_target: Decimal
+    rules_version: str
+
+
+def savings_target(price: Decimal, profile: Profile, rules: Rules, months_to_target: int) -> SavingsTarget:
+    """Monthly saving needed to hold the purchase cash by the target date.
+
+    total  = down_payment + legal_fees + stamp_duty (MOT + loan) + valuation + disbursements + buffer
+    buffer = monthly living costs × recommended_buffer_months
+    gap    = max(total − current_savings − eligible EPF, 0)
+    monthly_savings_target = gap / months_to_target
+    """
+    mof_pct = rules.margin_of_finance_pct(profile.existing_housing_loans)
+    c = {k: money(v) for k, v in _components(price, mof_pct, rules).items()}
+    months = max(months_to_target, 1)
+    buffer_months = rules.living_costs.recommended_buffer_months
+    buffer = money(living_costs(profile, rules) * buffer_months)
+    stamp = c["stamp_duty_mot"] + c["stamp_duty_loan"]
+    total = c["down_payment"] + c["legal_fees"] + stamp + c["valuation"] + c["disbursements"] + buffer
+    savings = money(profile.savings) if profile.savings is not None else money(ZERO)
+    epf = min(money(eligible_withdrawal(profile, rules)), total)
+    gap = max(total - savings - epf, ZERO)
+    return SavingsTarget(
+        property_price=money(price), down_payment=c["down_payment"], legal_fees=c["legal_fees"], stamp_duty=stamp,
+        valuation=c["valuation"], disbursements=c["disbursements"], buffer=buffer, buffer_months=buffer_months,
+        total_needed=total, current_savings=savings, savings_declared=profile.savings is not None, epf_applied=epf,
+        gap=gap, months_to_target=months, monthly_savings_target=money(gap / months), rules_version=rules.version,
     )

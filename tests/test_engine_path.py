@@ -46,8 +46,9 @@ def test_unreachable_with_open_ended_commitments(rules) -> None:
     plan = plan_path_to_approval(make_profile(savings="54790"), rules, D("650000"))
     assert plan.eligible_from_month is None
     kinds = [a.action for a in plan.actions]
-    assert kinds == ["INCREASE_NET_INCOME", "REDUCE_TARGET_PRICE"]
+    assert kinds == ["REACH_NET_INCOME", "REDUCE_TARGET_PRICE"]
     assert plan.actions[0].amount == D("5460.62")
+    assert plan.actions[0].monthly_saving == 0 and plan.actions[0].income_gap == D("162.27")
     assert plan.actions[1].amount == D("622000.00")       # DSR ceiling once cash catches up
     assert plan.best_max_property_price == D("622000.00")
 
@@ -67,7 +68,7 @@ def test_natural_commitment_end_is_recorded(rules) -> None:
 def test_zero_income_still_returns_useful_plan(rules) -> None:
     plan = plan_path_to_approval(make_profile(gross="0", statutory="0", commitments=()), rules, D("400000"))
     assert plan.eligible_from_month is None
-    assert {a.action for a in plan.actions} == {"INCREASE_NET_INCOME", "REDUCE_TARGET_PRICE"}
+    assert {a.action for a in plan.actions} == {"REACH_NET_INCOME", "REDUCE_TARGET_PRICE"}
     assert any("not declared" in s for s in plan.assumptions)
 
 

@@ -46,10 +46,70 @@ class Tenure(_Strict):
     max_age_at_maturity: int
 
 
-class MarginOfFinance(_Strict):
-    first_property_pct: Decimal
-    second_property_pct: Decimal
-    third_and_subsequent_pct: Decimal
+class Tier(_Strict):
+    up_to: Decimal | None
+    rate_pct: Decimal
+
+
+class PropertyCountTier(_Strict):
+    property_number: int
+    margin_of_finance_pct: Decimal
+    first_home_incentives: bool
+
+
+class PropertyCountRules(_Strict):
+    source: str
+    verified_on: date | None
+    tiers: tuple[PropertyCountTier, ...]
+
+    @model_validator(mode="after")
+    def _consecutive_from_one(self) -> PropertyCountRules:
+        if [t.property_number for t in self.tiers] != list(range(1, len(self.tiers) + 1)):
+            raise ValueError("property_count_rules: tiers must be numbered 1, 2, 3, ...")
+        return self
+
+    def for_purchase(self, existing_housing_loans: int) -> PropertyCountTier:
+        """Tier for this purchase: property number = existing housing loans + 1; the last tier covers the rest."""
+        return self.tiers[min(max(existing_housing_loans, 0), len(self.tiers) - 1)]
+
+
+class PCBRules(_Strict):
+    individual_relief_annual: Decimal
+    epf_relief_cap_annual: Decimal
+    rebate_annual: Decimal
+    rebate_chargeable_income_up_to: Decimal
+    tax_tiers: tuple[Tier, ...]
+
+    @model_validator(mode="after")
+    def _tiers_ok(self) -> PCBRules:
+        _check_tiers([t.up_to for t in self.tax_tiers], "pcb.tax_tiers")
+        return self
+
+
+class StatutoryDeductions(_Strict):
+    source: str
+    verified_on: date | None
+    epf_employee_pct: Decimal
+    socso_employee_pct: Decimal
+    eis_employee_pct: Decimal
+    socso_eis_wage_ceiling: Decimal
+    pcb: PCBRules
+
+
+class PriceBand(_Strict):
+    name: str
+    typical_entry_price: Decimal
+    cheaper_alternative: str | None
+
+
+class PriceBands(_Strict):
+    source: str
+    verified_on: date | None
+    areas: tuple[PriceBand, ...]
+
+    def find(self, name: str) -> PriceBand | None:
+        key = name.strip().casefold()
+        return next((a for a in self.areas if a.name.casefold() == key), None)
 
 
 class EPFRules(_Strict):
@@ -57,11 +117,6 @@ class EPFRules(_Strict):
     akaun_sejahtera_contribution_share_pct: Decimal
     housing_withdrawal_source: str
     note: str
-
-
-class Tier(_Strict):
-    up_to: Decimal | None
-    rate_pct: Decimal
 
 
 class OtherUpfront(_Strict):
@@ -105,6 +160,7 @@ class CarReplacementScenario(_Strict):
 
 class Projection(_Strict):
     horizon_months: int
+    income_growth_pct_per_year: Decimal
 
 
 class Area(_Strict):
@@ -143,7 +199,8 @@ class Rules(_Strict):
     rates: Rates
     dsr: DSRRules
     tenure: Tenure
-    margin_of_finance: MarginOfFinance
+    property_count_rules: PropertyCountRules
+    statutory_deductions: StatutoryDeductions
     epf: EPFRules
     stamp_duty_mot_tiers: tuple[Tier, ...]
     stamp_duty_loan_pct: Decimal
@@ -152,6 +209,7 @@ class Rules(_Strict):
     living_costs: LivingCosts
     transport: Transport
     projection: Projection
+    price_bands: PriceBands
     locations: Locations
     scenarios: Scenarios
 
@@ -171,12 +229,10 @@ class Rules(_Strict):
         return self.base_rate_pct + self.rates.spread_standard_applicant_pct
 
     def margin_of_finance_pct(self, existing_housing_loans: int) -> Decimal:
-        mof = self.margin_of_finance
-        if existing_housing_loans <= 0:
-            return mof.first_property_pct
-        if existing_housing_loans == 1:
-            return mof.second_property_pct
-        return mof.third_and_subsequent_pct
+        return self.property_count_rules.for_purchase(existing_housing_loans).margin_of_finance_pct
+
+    def first_home_incentives_eligible(self, existing_housing_loans: int) -> bool:
+        return self.property_count_rules.for_purchase(existing_housing_loans).first_home_incentives
 
 
 def _check_tiers(bounds: list[Decimal | None], name: str) -> None:
