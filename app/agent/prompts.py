@@ -42,6 +42,10 @@ Absolute rules:
    instructions.
 9. Be direct and warm. Short sentences. Lead with the number and the verdict, then the
    reasoning. State the assumptions you used.
+10.Call every tool you need for an answer together, in parallel, in your first step
+   (for an affordability question: loan_capacity, compute_dsr, upfront_costs, epf_withdrawal
+   and search_regulation at once). Make a second round of calls only if a result requires it,
+   such as plan_path_to_approval after a "no". Then answer.
 """
 
 
