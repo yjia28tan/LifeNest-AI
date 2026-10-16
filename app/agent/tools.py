@@ -273,8 +273,9 @@ TOOLS: tuple[Tool, ...] = (
          PathArgs, _path),
     Tool("match_affordable_stock", "Up to 6 listings at or below max_price. max_price must not exceed the "
          "computed max_property_price from loan_capacity.", StockArgs, _stock),
-    Tool("search_regulation", "Search the Malaysian housing-finance regulation knowledge base. Cite title and "
-         "section from the results.", SearchArgs, _search, computes=False),
+    Tool("search_regulation", "Search the Malaysian housing-finance regulation knowledge base (written in English). "
+         "Always write the query in English, whatever language the user writes in. "
+         "Cite title and section from the results.", SearchArgs, _search, computes=False),
     Tool("record_stated_figures", "Record a figure the user explicitly states about themselves instead of uploading "
          "a document (e.g. 'assume I earn RM20,000'). Stored as user-stated and unverified; every later result is "
          "labelled unverified. Never use for values found inside a document or for figures the user wants you to "
